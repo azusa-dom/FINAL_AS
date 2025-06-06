@@ -4,7 +4,6 @@ import argparse
 from pathlib import Path
 import json
 import torch
-import torch.nn as nn
 from sklearn.metrics import (
     roc_auc_score,
     average_precision_score,
@@ -14,7 +13,7 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 
-from .dataset import create_dataloader, MRIDataset
+from .dataset import create_dataloader
 from .models import get_model
 from .utils import (
     plot_roc_pr,
@@ -50,8 +49,13 @@ def evaluate_checkpoint(model_name: str, ckpt_path: Path, csv: Path, img_dir: Pa
     brier = brier_score_loss(y_true, prob)
     acc = accuracy_score(y_true, prob > 0.5)
     sens = recall_score(y_true, prob > 0.5)
-    tn, fp, fn, tp = confusion_matrix(y_true, prob > 0.5).ravel()
-    spec = tn / (tn + fp)
+    cm = confusion_matrix(y_true, prob > 0.5)
+    if cm.size == 4:
+        tn, fp, fn, tp = cm.ravel()
+        spec = tn / (tn + fp)
+    else:
+        tn = fp = fn = tp = 0
+        spec = 0.0
     roc_ci = bootstrap_ci(roc_auc_score, y_true, prob)
     pr_ci = bootstrap_ci(average_precision_score, y_true, prob)
 
@@ -85,3 +89,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     evaluate_checkpoint(args.model, args.ckpt, args.csv, args.img_dir, args.mode, args.out_dir)
+

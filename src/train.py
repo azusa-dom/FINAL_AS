@@ -68,6 +68,7 @@ def run_fold(fold, train_idx, test_idx, args):
         acc = evaluate(model, val_loader, device)
         if acc > best_acc:
             best_acc = acc
+            Path(args.save_dir).mkdir(parents=True, exist_ok=True)
             torch.save(model.state_dict(), Path(args.save_dir) / f'fold{fold}_{args.model}.pt')
     return best_acc
 
@@ -101,3 +102,4 @@ if __name__ == '__main__':
     parser.add_argument('--save_dir', type=Path, default=Path('checkpoints'))
     args = parser.parse_args()
     main(args)
+
