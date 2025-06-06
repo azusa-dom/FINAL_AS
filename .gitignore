@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.so
+checkpoints/
+logs/
+results/
+data/
+*.h5
+*.nii*
+.DS_Store

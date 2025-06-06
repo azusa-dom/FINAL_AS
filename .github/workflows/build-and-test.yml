@@ -1,0 +1,39 @@
+
+name: MRI-AS CI
+
+on:
+  push:
+    branches: [main, codex/**]
+  pull_request:
+    branches: [main, codex/**]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: [3.10]  # Ensure this matches an available version
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install shap SimpleITK pydicom nibabel black flake8
+
+      - name: Lint (black & flake8)
+        run: |
+          black --check src scripts
+          flake8 src scripts
+
+      - name: Run example test (optional)
+        run: |
+          echo "✅ If you have test scripts, run pytest here"
