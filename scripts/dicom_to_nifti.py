@@ -7,6 +7,7 @@ settings.disable_validate_slice_increment()
 settings.disable_validate_orthogonal()
 settings.disable_validate_slicecount()
 
+
 def convert_dicom_to_nifti(input_folder, output_folder):
     os.makedirs(output_folder, exist_ok=True)
 
@@ -15,13 +16,11 @@ def convert_dicom_to_nifti(input_folder, output_folder):
             try:
                 print(f"正在转换：{root}")
                 dicom2nifti.convert_directory(
-                    root,
-                    output_folder,
-                    compression=True,
-                    reorient=True
+                    root, output_folder, compression=True, reorient=True
                 )
             except Exception as e:
                 print(f"转换失败 {root}：{e}")
+
 
 if __name__ == "__main__":
     import argparse

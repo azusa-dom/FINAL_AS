@@ -5,12 +5,18 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_curve
+
 
 def plot_shap(csv_file, save_dir):
     df = pd.read_csv(csv_file)
     X = df.drop(columns=["patient_id", "label"], errors="ignore")
-    y = df["label"] if "label" in df.columns else np.random.randint(0, 2, size=len(X))  # fallback
+    # fmt: off
+    y = (
+        df["label"]
+        if "label" in df.columns
+        else np.random.randint(0, 2, size=len(X))
+    )
+    # fmt: on
 
     model = LogisticRegression().fit(X, y)
     explainer = shap.Explainer(model, X)
@@ -49,8 +55,20 @@ def plot_dca(csv_file, save_dir):
 
     plt.figure(figsize=(8, 5))
     plt.plot(thresholds, net_benefit_model, label="Model", color="blue")
-    plt.plot(thresholds, net_benefit_all, label="Treat All", linestyle="--", color="gray")
-    plt.plot(thresholds, net_benefit_none, label="Treat None", linestyle="--", color="black")
+    plt.plot(
+        thresholds,
+        net_benefit_all,
+        label="Treat All",
+        linestyle="--",
+        color="gray",
+    )
+    plt.plot(
+        thresholds,
+        net_benefit_none,
+        label="Treat None",
+        linestyle="--",
+        color="black",
+    )
     plt.xlabel("Threshold Probability")
     plt.ylabel("Net Benefit")
     plt.title("Decision Curve Analysis")

@@ -13,15 +13,13 @@ class ResNet18Encoder(nn.Module):
         modules = list(backbone.children())[:-1]  # 去除 fc 层
         self.feature_extractor = nn.Sequential(*modules)
         self.projector = nn.Sequential(
-            nn.Linear(512, output_dim),
-            nn.ReLU(),
-            nn.Dropout(0.2)
+            nn.Linear(512, output_dim), nn.ReLU(), nn.Dropout(0.2)
         )
 
     def forward(self, x):
         x = self.feature_extractor(x)  # [B, 512, 1, 1]
-        x = x.view(x.size(0), -1)      # [B, 512]
-        return self.projector(x)       # [B, output_dim]
+        x = x.view(x.size(0), -1)  # [B, 512]
+        return self.projector(x)  # [B, output_dim]
 
 
 # ========= 2️⃣ 临床模型（用于提取结构化临床变量） =========
@@ -34,7 +32,7 @@ class ClinicalMLP(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(hidden, hidden),
-            nn.ReLU()
+            nn.ReLU(),
         )
 
     def forward(self, x):
@@ -46,10 +44,18 @@ class EarlyFusionTransformer(nn.Module):
     def __init__(self, clin_feat_dim=4, hidden_dim=128, nhead=4, num_layers=2):
         super().__init__()
 
-        self.img_encoder = ResNet18Encoder(pretrained=True, output_dim=hidden_dim)
-        self.clin_encoder = ClinicalMLP(in_features=clin_feat_dim, hidden=hidden_dim)
+        self.img_encoder = ResNet18Encoder(
+            pretrained=True,
+            output_dim=hidden_dim,
+        )
+        self.clin_encoder = ClinicalMLP(
+            in_features=clin_feat_dim,
+            hidden=hidden_dim,
+        )
 
-        self.pos_embedding = nn.Parameter(torch.randn(1, 2, hidden_dim))  # 2 tokens: image, clinical
+        self.pos_embedding = nn.Parameter(
+            torch.randn(1, 2, hidden_dim)
+        )  # 2 tokens: image, clinical
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim,
@@ -57,18 +63,19 @@ class EarlyFusionTransformer(nn.Module):
             dim_feedforward=hidden_dim * 2,
             dropout=0.1,
             activation="relu",
-            batch_first=True
+            batch_first=True,
         )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=num_layers,
+        )
 
         self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 2)
+            nn.Linear(hidden_dim, 64), nn.ReLU(), nn.Linear(64, 2)
         )
 
     def forward(self, img, clin):
-        img_feat = self.img_encoder(img)   # [B, hidden]
+        img_feat = self.img_encoder(img)  # [B, hidden]
         clin_feat = self.clin_encoder(clin)  # [B, hidden]
         tokens = torch.stack([img_feat, clin_feat], dim=1)  # [B, 2, hidden]
         tokens = tokens + self.pos_embedding
@@ -88,22 +95,28 @@ class FeatureExtractorLateFusion(nn.Module):
 
     def __init__(self, clin_feat_dim=4, output_dim=64):
         super().__init__()
-        self.img_encoder = ResNet18Encoder(pretrained=True, output_dim=output_dim)
-        self.clin_encoder = ClinicalMLP(in_features=clin_feat_dim, hidden=output_dim)
+        self.img_encoder = ResNet18Encoder(
+            pretrained=True,
+            output_dim=output_dim,
+        )
+        self.clin_encoder = ClinicalMLP(
+            in_features=clin_feat_dim,
+            hidden=output_dim,
+        )
 
     def forward(self, img, clin):
-        img_feat = self.img_encoder(img)     # [B, D]
+        img_feat = self.img_encoder(img)  # [B, D]
         clin_feat = self.clin_encoder(clin)  # [B, D]
         return img_feat, clin_feat  # 由外部代码拼接后喂给 XGBoost
 
-def get_model(name: str, **kwargs) -> nn.Module:
-    if name == 'mri_only':
-        return ResNet18Encoder(**kwargs)
-    if name == 'clin_only':
-        return ClinicalMLP(**kwargs)
-    if name == 'early_fusion':
-        return EarlyFusionTransformer(**kwargs)
-    if name == 'late_fusion_features':
-        return FeatureExtractorLateFusion(**kwargs)
-    raise ValueError(f'Unknown model {name}')
 
+def get_model(name: str, **kwargs) -> nn.Module:
+    if name == "mri_only":
+        return ResNet18Encoder(**kwargs)
+    if name == "clin_only":
+        return ClinicalMLP(**kwargs)
+    if name == "early_fusion":
+        return EarlyFusionTransformer(**kwargs)
+    if name == "late_fusion_features":
+        return FeatureExtractorLateFusion(**kwargs)
+    raise ValueError(f"Unknown model {name}")

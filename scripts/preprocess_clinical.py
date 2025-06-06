@@ -4,6 +4,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from imblearn.over_sampling import SMOTE
 
+
 def preprocess_clinical_data(input_csv, output_csv, label_column="label"):
     print(f"📥 正在读取临床数据: {input_csv}")
     df = pd.read_csv(input_csv)
@@ -40,12 +41,20 @@ def preprocess_clinical_data(input_csv, output_csv, label_column="label"):
     result_df.to_csv(output_csv, index=False)
     print(f"📤 已保存处理后数据到: {output_csv}")
 
+
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="临床表型数据预处理")
     parser.add_argument("input_csv", help="原始 CSV 文件路径")
     parser.add_argument("output_csv", help="输出处理后 CSV 文件路径")
-    parser.add_argument("--label_column", default="label", help="标签列名称，默认是 'label'")
+    parser.add_argument(
+        "--label_column", default="label", help="标签列名称，默认是 'label'"
+    )
     args = parser.parse_args()
 
-    preprocess_clinical_data(args.input_csv, args.output_csv, args.label_column)
+    preprocess_clinical_data(
+        args.input_csv,
+        args.output_csv,
+        args.label_column,
+    )
