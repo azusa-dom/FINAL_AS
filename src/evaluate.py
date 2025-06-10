@@ -1,3 +1,31 @@
+# src/evaluate.py
+
+import argparse
+from pathlib import Path
+import json
+import torch
+from sklearn.metrics import (
+    roc_auc_score,
+    average_precision_score,
+    brier_score_loss,
+    accuracy_score,
+    recall_score,
+    confusion_matrix,
+)
+
+from .dataset import create_dataloader
+from .models import get_model  # 用它来根据 model_name 实例化模型
+# 下面两个用于 isinstance 判断（可选，如果你直接用 model_name 分支也行）
+from .models import ClinicalMLP, ResNet18Encoder  
+from .utils import (
+    plot_roc_pr,
+    plot_calibration_curve,
+    decision_curve_analysis,
+    bootstrap_ci,
+    save_json,
+)
+
+
 def evaluate_checkpoint(
     model_name: str,
     ckpt_path: Path,
@@ -15,34 +43,37 @@ def evaluate_checkpoint(
         mode=mode,
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # 1. load model
     model = get_model(model_name)
     model.load_state_dict(torch.load(ckpt_path, map_location=device))
     model.to(device)
     model.eval()
 
+    # 2. run inference
     y_true, prob = [], []
     with torch.no_grad():
         for img, clin, label in loader:
             img, clin = img.to(device), clin.to(device)
 
-            # —— 根据模型名称决定输入 —— #
+            # —— 根据 model_name 决定输入 —— #
             if model_name == "clin_only":
-                # 纯临床模型，只用临床特征
+                # 纯临床模型：只用 clin 特征
                 output = model(clin)
             elif model_name == "mri_only":
-                # 纯图像模型，只用图像
+                # 纯图像模型：只用 img 输入
                 output = model(img)
             else:
-                # 其余融合模型（early_fusion／late_fusion_features）
+                # 融合模型（early_fusion、late_fusion_features 等）
                 output = model(img, clin)
 
-            prob.append(torch.softmax(output, 1)[:, 1].cpu())
+            prob.append(torch.softmax(output, dim=1)[:, 1].cpu())
             y_true.append(label)
 
     prob = torch.cat(prob).numpy()
     y_true = torch.cat(y_true).numpy()
 
-    # 后面不变，计算指标并保存
+    # 3. 计算指标
     roc = roc_auc_score(y_true, prob)
     pr = average_precision_score(y_true, prob)
     brier = brier_score_loss(y_true, prob)
@@ -57,20 +88,41 @@ def evaluate_checkpoint(
     roc_ci = bootstrap_ci(roc_auc_score, y_true, prob)
     pr_ci = bootstrap_ci(average_precision_score, y_true, prob)
 
+    # 4. 保存结果和可视化
     out_dir.mkdir(parents=True, exist_ok=True)
     plot_roc_pr(y_true, prob, str(out_dir / "curve"))
     plot_calibration_curve(y_true, prob, str(out_dir / "calibration.png"))
     decision_curve_analysis(y_true, prob, str(out_dir / "dca.png"))
 
     metrics = {
-        'roc_auc': roc,
-        'pr_auc': pr,
-        'brier': brier,
-        'accuracy': acc,
-        'sensitivity': sens,
-        'specificity': spec,
-        'roc_auc_ci': roc_ci.tolist(),
-        'pr_auc_ci': pr_ci.tolist(),
+        "roc_auc": roc,
+        "pr_auc": pr,
+        "brier": brier,
+        "accuracy": acc,
+        "sensitivity": sens,
+        "specificity": spec,
+        "roc_auc_ci": roc_ci.tolist(),
+        "pr_auc_ci": pr_ci.tolist(),
     }
-    save_json(metrics, out_dir / 'test_metrics.json')
+    save_json(metrics, out_dir / "test_metrics.json")
     print(json.dumps(metrics, indent=2))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model",    type=str, required=True)
+    parser.add_argument("--ckpt",     type=Path, required=True)
+    parser.add_argument("--csv",      type=Path, default=Path("data/clinical.csv"))
+    parser.add_argument("--img_dir",  type=Path, default=Path("data/mri"))
+    parser.add_argument("--mode",     type=str,  default="png")
+    parser.add_argument("--out_dir",  type=Path, default=Path("results"))
+    args = parser.parse_args()
+
+    evaluate_checkpoint(
+        args.model,
+        args.ckpt,
+        args.csv,
+        args.img_dir,
+        args.mode,
+        args.out_dir,
+    )
