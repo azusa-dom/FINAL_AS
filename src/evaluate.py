@@ -14,7 +14,7 @@ from sklearn.metrics import (
 )
 
 from .dataset import create_dataloader
-from .models import get_model
+from .models import get_model, ClinicalMLP
 from .utils import (
     plot_roc_pr,
     plot_calibration_curve,
@@ -49,7 +49,9 @@ def evaluate_checkpoint(
     with torch.no_grad():
         for img, clin, label in loader:
             img, clin = img.to(device), clin.to(device)
-            if len(model.forward.__code__.co_varnames) == 3:
+            if isinstance(model, ClinicalMLP):
+                output = model(clin)
+            elif len(model.forward.__code__.co_varnames) == 3:
                 output = model(img, clin)
             else:
                 output = model(img)

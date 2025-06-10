@@ -8,7 +8,7 @@ from torch.optim import Adam
 from sklearn.metrics import accuracy_score
 
 from .dataset import MRIDataset, split_patient_kfold, create_dataloader
-from .models import get_model
+from .models import get_model, ClinicalMLP
 from .utils import seed_everything, save_json
 
 
@@ -19,7 +19,9 @@ def train_one_epoch(model, loader, optimizer, device):
     for img, clin, label in loader:
         img, clin, label = img.to(device), clin.to(device), label.to(device)
         optimizer.zero_grad()
-        if (
+        if isinstance(model, ClinicalMLP):
+            output = model(clin)
+        elif (
             isinstance(model, nn.Module)
             and len(model.forward.__code__.co_varnames) == 3
         ):
@@ -39,7 +41,9 @@ def evaluate(model, loader, device):
     with torch.no_grad():
         for img, clin, label in loader:
             img, clin = img.to(device), clin.to(device)
-            if (
+            if isinstance(model, ClinicalMLP):
+                output = model(clin)
+            elif (
                 isinstance(model, nn.Module)
                 and len(model.forward.__code__.co_varnames) == 3
             ):
