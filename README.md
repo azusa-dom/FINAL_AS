@@ -1,4 +1,4 @@
-````markdown
+
 # Multimodal AS Diagnosis Pipeline
 
 This project implements a reproducible deep-learning pipeline for early detection and treatment-response prediction in axial spondyloarthritis (axSpA), including ankylosing spondylitis (AS). Models are developed separately for sacroiliac‐joint MRI and clinical features; multimodal fusion is planned once matched data are available.
@@ -30,7 +30,7 @@ This project implements a reproducible deep-learning pipeline for early detectio
 
 ## Directory Structure
 
-```bash
+
 FINAL_AS/
 ├── README.md
 ├── runall.sh                   # One-click pipeline driver (see “Usage”)
