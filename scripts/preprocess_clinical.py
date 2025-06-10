@@ -1,3 +1,22 @@
+--- a/scripts/preprocess_clinical.py
++++ b/scripts/preprocess_clinical.py
+@@
+-import pandas as pd
++import pandas as pd
++from sklearn.pipeline import Pipeline
+@@ def create_preprocessor(numeric_features, categorical_features):
+-    numeric_transformer = pd.Pipeline(steps=[
++    numeric_transformer = Pipeline(steps=[
+         ('imputer', SimpleImputer(strategy='mean')),
+         ('scaler', StandardScaler())
+     ])
+@@
+-    categorical_transformer = pd.Pipeline(steps=[
++    categorical_transformer = Pipeline(steps=[
+         ('imputer', SimpleImputer(strategy='most_frequent')),
+         ('onehot', OneHotEncoder(handle_unknown='ignore'))
+     ])
+
 import pandas as pd
 import numpy as np
 import argparse
@@ -7,6 +26,8 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import StratifiedKFold
 from imblearn.over_sampling import SMOTE
+from sklearn.pipeline import Pipeline
+
 
 def create_preprocessor(numeric_features, categorical_features):
     """
