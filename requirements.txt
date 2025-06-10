@@ -1,12 +1,22 @@
-# torch==1.13.1
-# torchvision==0.14.1
+# 核心依赖
 numpy==1.23.5
 pandas==1.5.3
 matplotlib==3.7.1
 scikit-learn==1.2.2
 xgboost==1.7.6
 shap==0.41.0
+
+# 医学图像处理
 h5py==3.9.0
 pydicom==2.4.0
 nibabel==5.1.0
 dicom2nifti==2.4.10
+SimpleITK==2.2.1    # 🔺 Bias Field N4 校正使用
+scipy==1.10.1        # 🔺 图像增强用到的旋转/平移函数
+
+# 数据增强 + SMOTE
+imbalanced-learn==0.11.0  # 🔺 preprocess_clinical.py 中使用 SMOTE
+
+# 代码风格检查（如你 workflow 中用的 black、flake8）
+black==25.1.0
+flake8==7.2.0
