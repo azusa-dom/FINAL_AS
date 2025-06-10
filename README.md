@@ -29,8 +29,8 @@ This project implements a reproducible deep-learning pipeline for early detectio
    - Decision Curve Analysis (DCA) for net benefit assessment  
 
 ## Directory Structure
-
-
+```
+bash
 FINAL_AS/
 ├── README.md
 ├── runall.sh                   # One-click pipeline driver (see “Usage”)
@@ -74,7 +74,7 @@ FINAL_AS/
     ├── pr_curves/
     ├── shap_summary.png
     └── dca_curve.png
-````
+```
 
 ## Environment & Dependencies
 
