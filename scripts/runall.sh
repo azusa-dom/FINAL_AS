@@ -15,7 +15,7 @@ RESULT_DIR=results
 echo "=========================="
 echo "1. DICOM → NIfTI 转换"
 echo "=========================="
-python scripts/dicom_to_nifti.py --input ${DATA_ROOT}/dicom --output ${NIFTI_DIR}
+python scripts/dicom_to_nifti.py ${DATA_ROOT}/dicom ${NIFTI_DIR}
 
 echo "=========================="
 echo "2. Bias Field N4 校正"
@@ -35,7 +35,7 @@ python scripts/augment_nifti.py ${ROI_DIR} ${AUG_DIR}
 echo "=========================="
 echo "5. 临床数据预处理"
 echo "=========================="
-python scripts/preprocess_clinical.py --csv ${CLINICAL_CSV} --output ${CLEANED_CSV}
+python scripts/preprocess_clinical.py ${CLINICAL_CSV} ${CLEANED_CSV}
 
 echo "=========================="
 echo "6. 训练 Early-Fusion Transformer"
@@ -54,11 +54,10 @@ echo "8. 模型评估 + 可视化（SHAP / DCA）"
 echo "=========================="
 python src/evaluate.py --model early_fusion \
     --ckpt ${CKPT_DIR}/early/fold0.pt \
-    --csv ${CLEANED_CSV} --img_dir ${AUG_DIR} --save_dir ${RESULT_DIR}/early
+    --csv ${CLEANED_CSV} --img_dir ${AUG_DIR} --out_dir ${RESULT_DIR}/early
 
 python scripts/plot_shap_dca.py \
     --csv ${CLEANED_CSV} \
-    --img_dir ${AUG_DIR} \
     --save_dir ${RESULT_DIR}/early
 
 echo "🎉 全部流程完成！结果已保存至 ${RESULT_DIR}"
