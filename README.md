@@ -16,7 +16,7 @@ This project aims to implement a reproducible multimodal deep learning pipeline 
 ```bash
 .
 ├── README.md                     # This document
-├── run_all.sh                   # One-click script for the entire pipeline
+├── runall.sh                   # One-click script for the entire pipeline
 ├── data_splits/                 # Patient-level train/val/test CSVs
 │   ├── train.csv
 │   ├── val.csv
@@ -109,7 +109,7 @@ Example for Linux/MacOS (adapt for Windows as needed):
 ### 1. Run All Scripts
 
 ```bash
-bash run_all.sh
+bash runall.sh
 ```
 
 This will:
