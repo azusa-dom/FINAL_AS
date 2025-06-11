@@ -1,9 +1,9 @@
 import pandas as pd
 
-def clean_and_label_as(csv_path, out_path="cleaned_clinical_with_as.csv", only_positive=False):
+def clean_and_label_as(csv_path, out_path="cleaned_clinical_with_as.csv", only_positive=False, sample_size=None):
     """
     加载临床数据，清洗缺失值和异常值，并构造伪标签 `pseudo_AS`
-    保存为新的 CSV 文件
+    可以选取样本子集保存
     """
     df = pd.read_excel(csv_path)
 
@@ -30,16 +30,20 @@ def clean_and_label_as(csv_path, out_path="cleaned_clinical_with_as.csv", only_p
     def label_as(row):
         if row["HLA_B27"] == "Positive":
             if row["ESR"] > 20 or row["CRP"] > 10:
-                return 1  # 判定为可能AS
-        return 0  # 非AS
+                return 1
+        return 0
 
     df["pseudo_AS"] = df.apply(label_as, axis=1)
 
-    # 选项：是否只保留预测为 AS 的病人
+    # 可选：是否只保留伪AS病人
     if only_positive:
         df = df[df["pseudo_AS"] == 1]
 
-    # 可选：只保留用于建模的字段
+    # ✅ 可选：采样子集
+    if sample_size is not None and sample_size < len(df):
+        df = df.sample(n=sample_size, random_state=42)
+
+    # 保存清洗后的文件
     selected_cols = numeric_cols + binary_cols + ["pseudo_AS"]
     df[selected_cols].to_csv(out_path, index=False)
     print(f"✅ 临床数据已清洗并保存: {out_path}")
@@ -49,11 +53,13 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="清洗临床指标并生成 pseudo_AS 标签")
     parser.add_argument("--csv", type=str, required=True,
-                        help="原始临床CSV路径（如 clinical_raw.csv）")
+                        help="原始临床Excel路径")
     parser.add_argument("--out", type=str, default="cleaned_clinical_with_as.csv",
                         help="输出清洗后的CSV文件名")
     parser.add_argument("--only_positive", action="store_true",
-                        help="是否仅保留伪AS样本（HLA-B27+ 且炎症升高）")
+                        help="是否仅保留伪AS样本")
+    parser.add_argument("--sample_size", type=int, default=None,
+                        help="最多保留的样本数（用于控制临床数据大小）")
 
     args = parser.parse_args()
-    clean_and_label_as(args.csv, args.out, args.only_positive)
+    clean_and_label_as(args.csv, args.out, args.only_positive, args.sample_size)
