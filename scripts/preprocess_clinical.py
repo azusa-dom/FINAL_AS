@@ -8,6 +8,9 @@ from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import StratifiedKFold
 from imblearn.over_sampling import SMOTE
 from sklearn.pipeline import Pipeline
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
 
 
 def create_preprocessor(numeric_features, categorical_features):
@@ -16,7 +19,7 @@ def create_preprocessor(numeric_features, categorical_features):
     这个预处理器包含了对数值和分类特征的独立处理流程。
     """
     # 为数值特征创建处理管道：1. 均值填充 -> 2. 标准化
-    numeric_transformer = pd.Pipeline(steps=[
+    numeric_transformer = Pipeline(steps=[
         ('imputer', SimpleImputer(strategy='mean')),
         ('scaler', StandardScaler())
     ])
