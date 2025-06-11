@@ -1,109 +1,144 @@
-# 文件名: scripts/prepare_finetune_data_final.py
+#!/usr/bin/env python3
+# 文件: scripts/prepare_finetune_data_final.py
 
-import SimpleITK as sitk
 import os
-from PIL import Image
+import re
+import argparse
+import SimpleITK as sitk
 import numpy as np
+from PIL import Image
+from pathlib import Path
+from tqdm import tqdm
+
+def ensure_dir(path):
+    os.makedirs(path, exist_ok=True)
 
 def process_and_save_slices(image_3d, output_folder, base_filename, axis=2):
     """
-    一个通用的函数，用于将任何SimpleITK的3D影像对象切片并保存为PNG。
+    通用函数：将SimpleITK的3D影像切片并保存为PNG。
     """
+    image_np = sitk.GetArrayFromImage(image_3d)  # z, y, x
+    num = image_np.shape[axis]
+
+    for i in tqdm(range(num), desc=f"Slicing {base_filename}", leave=False):
+        if axis == 0:
+            sl = image_np[i, :, :]
+        elif axis == 1:
+            sl = image_np[:, i, :]
+        else:
+            sl = image_np[:, :, i]
+
+        mn, mx = sl.min(), sl.max()
+        if mx > mn:
+            u8 = ((sl - mn) / (mx - mn) * 255).astype(np.uint8)
+        else:
+            u8 = np.zeros_like(sl, dtype=np.uint8)
+
+        img = Image.fromarray(u8).convert("RGB")
+        fname = f"{base_filename}_slice_{i:03d}.png"
+        img.save(os.path.join(output_folder, fname))
+
+def raw_to_png(raw_path: Path, output_folder: str):
+    """
+    将 .raw 体数据转中间层 PNG。
+    文件名格式示例：SIJ_1_400_400_18_2_.raw
+    """
+    m = re.match(r".*_(\d+)_(\d+)_(\d+)_(\d+)_\.raw$", raw_path.name)
+    if not m:
+        print(f"    ↳ 跳过（文件名不匹配）: {raw_path.name}")
+        return
+    W, H, D, B = map(int, m.groups())
+    dtype = np.uint16 if B == 2 else np.uint8
+    data = np.fromfile(str(raw_path), dtype=dtype)
     try:
-        image_np = sitk.GetArrayFromImage(image_3d) # 转换为Numpy数组
+        data = data.reshape((D, H, W))
+    except ValueError:
+        print(f"    ↳ 跳过（尺寸不符）: {raw_path.name}")
+        return
 
-        # 根据指定的轴确定切片数量
-        if axis < 0 or axis > 2:
-            print(f"错误: 无效的轴向 {axis}。请选择 0, 1, 或 2。")
-            return
-            
-        num_slices = image_np.shape[axis]
-        
-        # 遍历每一个切片
-        for i in range(num_slices):
-            if axis == 0:
-                slice_np = image_np[i, :, :]
-            elif axis == 1:
-                slice_np = image_np[:, i, :]
-            else: # axis == 2
-                slice_np = image_np[:, :, i]
-            
-            # 将切片强度值重新缩放到0-255
-            if slice_np.max() > slice_np.min():
-                slice_rescaled = (255.0 * (slice_np - slice_np.min()) / (slice_np.max() - slice_np.min())).astype(np.uint8)
-            else:
-                slice_rescaled = np.zeros(slice_np.shape, dtype=np.uint8)
+    mid = D // 2
+    sl = data[mid, :, :]
+    mn, mx = sl.min(), sl.max()
+    if mx > mn:
+        u8 = ((sl - mn) / (mx - mn) * 255).astype(np.uint8)
+    else:
+        u8 = np.zeros_like(sl, dtype=np.uint8)
 
-            # 创建并保存PNG图片
-            pil_image = Image.fromarray(slice_rescaled).convert('RGB')
-            output_filename = f"{base_filename}_slice_{i:03d}.png"
-            output_path = os.path.join(output_folder, output_filename)
-            pil_image.save(output_path)
-            
-    except Exception as e:
-        print(f"处理并保存切片时发生错误 ({base_filename}): {e}")
+    img = Image.fromarray(u8).convert("RGB")
+    out_name = raw_path.stem + ".png"
+    img.save(os.path.join(output_folder, out_name))
+    print(f"    ↳ Saved RAW→PNG: {out_name}")
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Prepare AS MRI finetune data.")
+    parser.add_argument('--healthy_dir', required=True, help="Healthy NIfTI source dir")
+    parser.add_argument('--knee_dir', required=True, help="Knee joint raw dir")
+    parser.add_argument('--sacro_dir', required=True, help="Sacroiliac joint raw dir")
+    parser.add_argument('--out_dir', default="AS_Finetune_Data", help="Output directory")
+    return parser.parse_args()
 
 def main():
-    """
-    主函数，分别处理NIfTI格式的健康人数据和DICOM格式的AS病人数据。
-    """
-    # --- 配置区域 ---
-    # !! 请根据您的实际路径修改下面的变量 !!
-    healthy_source_dir = '/Users/hydra/Downloads/0' # 存放健康人NIfTI数据的父目录
-    as_source_dir = '/Users/hydra/Downloads/1'       # 存放AS病人DICOM数据的父目录
-    
-    output_finetune_dir = 'AS_Finetune_Data' # 总输出文件夹
-    
-    # --- 执行 ---
-    print("开始准备影像数据切片（最终版）...")
+    args = parse_args()
+    healthy_source_dir = args.healthy_dir
+    knee_post_dir      = args.knee_dir
+    sacro_dir          = args.sacro_dir
+    output_dir         = args.out_dir
 
-    # 1. 处理健康人的NIfTI数据
-    healthy_output_dir = os.path.join(output_finetune_dir, '0_Healthy')
-    os.makedirs(healthy_output_dir, exist_ok=True)
-    print(f"\n正在处理健康人数据 (NIfTI) 从 '{healthy_source_dir}' -> '{healthy_output_dir}'")
+    healthy_out = os.path.join(output_dir, '0_Healthy')
+    as_out      = os.path.join(output_dir, '1_AS')
+    ensure_dir(healthy_out)
+    ensure_dir(as_out)
+
+    print("▶ 开始准备影像数据切片…\n")
+
+    # 1) 健康组：NIfTI → PNG
+    print(f"处理健康组 NIfTI 目录：{healthy_source_dir}")
     if os.path.isdir(healthy_source_dir):
-        for subject_folder in sorted(os.listdir(healthy_source_dir)):
-            subject_path = os.path.join(healthy_source_dir, subject_folder)
-            if os.path.isdir(subject_path):
-                for root, _, files in os.walk(subject_path):
-                    for file in files:
-                        if file.endswith(('.nii', '.nii.gz')):
-                            nifti_path = os.path.join(root, file)
-                            print(f"  - 正在处理 NIfTI 文件: {nifti_path}")
-                            image_3d = sitk.ReadImage(nifti_path)
-                            process_and_save_slices(image_3d, healthy_output_dir, subject_folder)
-                            break # 每个受试者文件夹只处理一个NIfTI文件
+        for sub in sorted(os.listdir(healthy_source_dir)):
+            subdir = os.path.join(healthy_source_dir, sub)
+            if not os.path.isdir(subdir):
+                continue
+            for root, _, files in os.walk(subdir):
+                for f in files:
+                    if f.endswith(('.nii', '.nii.gz')):
+                        path = os.path.join(root, f)
+                        print(f"  - {sub}: {path}")
+                        try:
+                            img3d = sitk.ReadImage(path)
+                            process_and_save_slices(img3d, healthy_out, sub)
+                        except Exception as e:
+                            print(f"    ↳ 错误读取: {path} → {e}")
+                        break
+                break
     else:
-        print(f"警告: 健康人数据源目录不存在: {healthy_source_dir}")
+        print("⚠️ 健康组路径不存在！")
 
-    # 2. 处理AS病人的DICOM数据
-    as_output_dir = os.path.join(output_finetune_dir, '1_AS')
-    os.makedirs(as_output_dir, exist_ok=True)
-    print(f"\n正在处理AS病人数据 (DICOM) 从 '{as_source_dir}' -> '{as_output_dir}'")
-    if os.path.isdir(as_source_dir):
-        # DICOM数据通常是一个病人一个文件夹
-        for subject_folder in sorted(os.listdir(as_source_dir)):
-            dicom_series_path = os.path.join(as_source_dir, subject_folder)
-            if os.path.isdir(dicom_series_path):
-                 # 检查该文件夹是否包含DICOM文件
-                if any(f.endswith('.dcm') for f in os.listdir(dicom_series_path)):
-                    print(f"  - 正在处理 DICOM 序列: {dicom_series_path}")
-                    # 使用ImageSeriesReader来读取一个文件夹内的DICOM序列
-                    reader = sitk.ImageSeriesReader()
-                    dicom_names = reader.GetGDCMSeriesFileNames(dicom_series_path)
-                    if not dicom_names:
-                        print(f"    警告: 在 {dicom_series_path} 中找不到DICOM序列。")
-                        continue
-                    reader.SetFileNames(dicom_names)
-                    image_3d = reader.Execute()
-                    process_and_save_slices(image_3d, as_output_dir, subject_folder)
+    # 2) AS组：膝关节 + 骶髂关节
+    print(f"\n处理 AS 组：膝关节 Postcontrast (.raw) + 骶髂关节 (.raw)")
+
+    # 膝关节
+    if os.path.isdir(knee_post_dir):
+        print(f"  • 膝关节 Postcontrast 目录: {knee_post_dir}")
+        for f in sorted(os.listdir(knee_post_dir)):
+            if f.lower().endswith('.raw'):
+                raw_to_png(Path(knee_post_dir)/f, as_out)
     else:
-        print(f"警告: AS病人数据源目录不存在: {as_source_dir}")
+        print("⚠️ 膝关节 Postcontrast 路径不存在！")
 
+    # 骶髂关节
+    if os.path.isdir(sacro_dir):
+        print(f"  • 骶髂关节目录: {sacro_dir}")
+        for f in sorted(os.listdir(sacro_dir)):
+            if f.lower().endswith('.raw'):
+                raw_to_png(Path(sacro_dir)/f, as_out)
+    else:
+        print("⚠️ 骶髂关节路径不存在！")
 
-    print("\n所有数据处理完成！")
-    print(f"请检查 '{output_finetune_dir}' 文件夹，其中应该已经包含了所有生成的2D图片。")
+    print("\n✅ 全部切片完成！")
+    print(f"输出统计:")
+    print(f"  Healthy PNG 数量: {len(os.listdir(healthy_out))}")
+    print(f"  AS      PNG 数量: {len(os.listdir(as_out))}")
+    print(f"\n请确认 `{output_dir}` 下已有正确的二分类目录结构。")
 
 if __name__ == '__main__':
     main()
