@@ -5,21 +5,21 @@ from torch.utils.data import DataLoader
 from sklearn.utils.class_weight import compute_class_weight
 import numpy as np
 
-# We need to import your Dataset class to use it here
+# 我们需要导入您的 Dataset class 来使用它
 from .dataset import MRIDataset 
 
 
 def get_kfold_strafied_sampler(data_dir, n_splits=5, batch_size=32):
     """
-    A generator that finds pre-split fold data and yields DataLoaders for each fold.
+    一个生成器，用于查找预先分割好的数据折并为每个折返回 DataLoader。
     
     Args:
-        data_dir (str): The directory where 'fold_X_train.csv' and 'fold_X_val.csv' are saved.
-        n_splits (int): The number of folds to loop through.
-        batch_size (int): The batch size for the DataLoader.
+        data_dir (str): 'fold_X_train.csv' 和 'fold_X_val.csv' 所在的目录。
+        n_splits (int): 要循环的折数。
+        batch_size (int): DataLoader 的批量大小。
     
     Yields:
-        (DataLoader, DataLoader): A tuple containing the train_loader and val_loader for a fold.
+        (DataLoader, DataLoader): 一个包含训练集和验证集 DataLoader 的元组。
     """
     print(f"🔄 Loading {n_splits}-fold data from: {data_dir}")
     for i in range(n_splits):
@@ -31,13 +31,13 @@ def get_kfold_strafied_sampler(data_dir, n_splits=5, batch_size=32):
                 f"Data for fold {i} not found. Expected to find {train_path} and {val_path}"
             )
 
-        # --- THIS IS THE FIX ---
-        # Create dataset objects using the correct argument 'annotations_file'
-        train_dataset = MRIDataset(annotations_file=train_path)
-        val_dataset = MRIDataset(annotations_file=val_path)
-        # --- END OF FIX ---
+        # --- 这是需要修正的地方 ---
+        # 使用正确的参数名 'csv_file' 来创建数据集对象
+        train_dataset = MRIDataset(csv_file=train_path)
+        val_dataset = MRIDataset(csv_file=val_path)
+        # --- 修正结束 ---
 
-        # Create DataLoader objects
+        # 创建 DataLoader 对象
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
 
@@ -46,15 +46,15 @@ def get_kfold_strafied_sampler(data_dir, n_splits=5, batch_size=32):
 
 def get_class_weights(dataset):
     """
-    Computes class weights for handling imbalanced datasets.
+    计算类别权重以处理不平衡的数据集。
 
     Args:
-        dataset (Dataset): A PyTorch Dataset object which has a 'labels' attribute.
+        dataset (Dataset): 一个 PyTorch Dataset 对象，它有一个 'labels' 属性。
     
     Returns:
-        torch.Tensor: A tensor containing the weight for each class.
+        torch.Tensor: 一个包含每个类别权重的张量。
     """
-    # Access the labels from the dataset's underlying dataframe
+    # 从数据集的底层 dataframe 中访问标签
     labels = dataset.df[dataset.label_column].to_numpy()
     unique_labels = np.unique(labels)
     
