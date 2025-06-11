@@ -1,128 +1,79 @@
-# src/evaluate.py
-
+import pandas as pd
+from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, auc, confusion_matrix, classification_report
 import argparse
-from pathlib import Path
-import json
-import torch
-from sklearn.metrics import (
-    roc_auc_score,
-    average_precision_score,
-    brier_score_loss,
-    accuracy_score,
-    recall_score,
-    confusion_matrix,
-)
+import os
+import numpy as np
+from glob import glob
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-from .dataset import create_dataloader
-from .models import get_model  # 用它来根据 model_name 实例化模型
-# 下面两个用于 isinstance 判断（可选，如果你直接用 model_name 分支也行）
-from .models import ClinicalMLP, ResNet18Encoder  
-from .utils import (
-    plot_roc_pr,
-    plot_calibration_curve,
-    decision_curve_analysis,
-    bootstrap_ci,
-    save_json,
-)
+def evaluate(args):
+    """
+    Evaluates the model's predictions from K-fold cross-validation.
+    """
+    all_pred_files = glob(os.path.join(args.preds_dir, "fold_*_predictions.csv"))
+    if not all_pred_files:
+        print(f"Error: No prediction files found in {args.preds_dir}")
+        return
 
+    all_dfs = [pd.read_csv(f) for f in all_pred_files]
+    df_all_preds = pd.concat(all_dfs, ignore_index=True)
 
-def evaluate_checkpoint(
-    model_name: str,
-    ckpt_path: Path,
-    csv: Path,
-    img_dir: Path,
-    mode: str,
-    out_dir: Path,
-):
-    loader = create_dataloader(
-        csv,
-        img_dir,
-        batch_size=16,
-        train=False,
-        augment=False,
-        mode=mode,
-    )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    true_labels = df_all_preds['true_label']
+    
+    # Get logit columns
+    logit_cols = [col for col in df_all_preds.columns if 'logit_' in col]
+    pred_logits = df_all_preds[logit_cols].values
+    
+    # Convert logits to probabilities using softmax
+    softmax = torch.nn.Softmax(dim=1)
+    pred_probs = softmax(torch.tensor(pred_logits)).numpy()
+    
+    # Get predicted labels by taking the argmax
+    pred_labels = np.argmax(pred_probs, axis=1)
 
-    # 1. load model
-    model = get_model(model_name)
-    model.load_state_dict(torch.load(ckpt_path, map_location=device))
-    model.to(device)
-    model.eval()
+    # --- Calculate and Print Metrics ---
+    accuracy = accuracy_score(true_labels, pred_labels)
+    
+    # For multi-class AUC, we use One-vs-Rest
+    try:
+        auc_score = roc_auc_score(true_labels, pred_probs, multi_class='ovr', average='weighted')
+        print(f"\nOverall Weighted AUC (OvR): {auc_score:.4f}")
+    except ValueError as e:
+        print(f"\nCould not compute AUC: {e}")
 
-    # 2. run inference
-    y_true, prob = [], []
-    with torch.no_grad():
-        for img, clin, label in loader:
-            img, clin = img.to(device), clin.to(device)
+    print(f"Overall Accuracy: {accuracy:.4f}")
 
-            # —— 根据 model_name 决定输入 —— #
-            if model_name == "clin_only":
-                # 纯临床模型：只用 clin 特征
-                output = model(clin)
-            elif model_name == "mri_only":
-                # 纯图像模型：只用 img 输入
-                output = model(img)
-            else:
-                # 融合模型（early_fusion、late_fusion_features 等）
-                output = model(img, clin)
+    print("\nClassification Report:")
+    print(classification_report(true_labels, pred_labels))
 
-            prob.append(torch.softmax(output, dim=1)[:, 1].cpu())
-            y_true.append(label)
+    print("\nConfusion Matrix:")
+    cm = confusion_matrix(true_labels, pred_labels)
+    print(cm)
 
-    prob = torch.cat(prob).numpy()
-    y_true = torch.cat(y_true).numpy()
-
-    # 3. 计算指标
-    roc = roc_auc_score(y_true, prob)
-    pr = average_precision_score(y_true, prob)
-    brier = brier_score_loss(y_true, prob)
-    acc = accuracy_score(y_true, prob > 0.5)
-    sens = recall_score(y_true, prob > 0.5)
-    cm = confusion_matrix(y_true, prob > 0.5)
-    if cm.size == 4:
-        tn, fp, _, _ = cm.ravel()
-        spec = tn / (tn + fp)
-    else:
-        spec = 0.0
-    roc_ci = bootstrap_ci(roc_auc_score, y_true, prob)
-    pr_ci = bootstrap_ci(average_precision_score, y_true, prob)
-
-    # 4. 保存结果和可视化
-    out_dir.mkdir(parents=True, exist_ok=True)
-    plot_roc_pr(y_true, prob, str(out_dir / "curve"))
-    plot_calibration_curve(y_true, prob, str(out_dir / "calibration.png"))
-    decision_curve_analysis(y_true, prob, str(out_dir / "dca.png"))
-
-    metrics = {
-        "roc_auc": roc,
-        "pr_auc": pr,
-        "brier": brier,
-        "accuracy": acc,
-        "sensitivity": sens,
-        "specificity": spec,
-        "roc_auc_ci": roc_ci.tolist(),
-        "pr_auc_ci": pr_ci.tolist(),
-    }
-    save_json(metrics, out_dir / "test_metrics.json")
-    print(json.dumps(metrics, indent=2))
+    # Optional: Plot confusion matrix
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    plt.title('Overall Confusion Matrix')
+    
+    # Save the plot
+    plot_save_path = os.path.join(args.preds_dir, 'confusion_matrix.png')
+    plt.savefig(plot_save_path)
+    print(f"\nConfusion matrix plot saved to {plot_save_path}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model",    type=str, required=True)
-    parser.add_argument("--ckpt",     type=Path, required=True)
-    parser.add_argument("--csv",      type=Path, default=Path("data/clinical.csv"))
-    parser.add_argument("--img_dir",  type=Path, default=Path("data/mri"))
-    parser.add_argument("--mode",     type=str,  default="png")
-    parser.add_argument("--out_dir",  type=Path, default=Path("results"))
+    parser = argparse.ArgumentParser(description="Evaluate K-fold cross-validation predictions.")
+    parser.add_argument("--preds_dir", type=str, required=True, help="Directory containing the prediction CSV files.")
+    
+    # A small hack to make the script find torch if it's not in the environment
+    try:
+        import torch
+    except ImportError:
+        print("PyTorch not found, which is required for softmax. Please install PyTorch.")
+        exit()
+        
     args = parser.parse_args()
-
-    evaluate_checkpoint(
-        args.model,
-        args.ckpt,
-        args.csv,
-        args.img_dir,
-        args.mode,
-        args.out_dir,
-    )
+    evaluate(args)
