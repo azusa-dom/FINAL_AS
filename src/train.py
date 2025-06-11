@@ -7,60 +7,56 @@ import os
 import argparse
 from tqdm import tqdm
 
-# ✅ 使用正确的类名 ClinicalDataset（你在 dataset.py 里定义的）
-from .dataset import ClinicalDataset
+# We don't need direct imports from dataset anymore, utils handles it.
 from .models import SimpleResNet, SimpleCNN, SimpleMLP
-from .utils import get_class_weights
+from .utils import get_kfold_strafied_sampler, get_class_weights
 
-# ✅ 替代原先的 get_kfold_strafied_sampler
-def get_kfold_stratified_sampler(data_dir, batch_size=32, n_splits=5):
-    from sklearn.model_selection import StratifiedKFold
-    folds = []
 
-    for fold in range(n_splits):
-        train_csv = os.path.join(data_dir, f'fold_{fold}_train.csv')
-        val_csv = os.path.join(data_dir, f'fold_{fold}_val.csv')
-
-        train_dataset = ClinicalDataset(csv_path=train_csv, label_column="Disease")
-        val_dataset = ClinicalDataset(csv_path=val_csv, label_column="Disease")
-
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-
-        folds.append((train_loader, val_loader))
-
-    return folds
-
-# ===========================
-# 主训练函数
-# ===========================
 def train(args):
+    """主训练函数"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    kfold_loader = get_kfold_stratified_sampler(args.data_dir)
-
+    # 创建 k-fold 数据加载器
+    kfold_loader = get_kfold_strafied_sampler(args.data_dir, n_splits=5)
+    
     preds_output_dir = os.path.join(args.model_dir, 'clinical_preds')
     os.makedirs(preds_output_dir, exist_ok=True)
 
     for fold, (train_loader, val_loader) in enumerate(kfold_loader):
         print(f"\n===== Fold {fold} =====")
 
-        # 模型初始化
-        if args.model_name == 'resnet':
-            model = SimpleResNet(num_classes=2).to(device)
-        elif args.model_name == 'cnn':
-            model = SimpleCNN(num_classes=2).to(device)
-        else:
-            sample_batch = next(iter(train_loader))
-            input_dim = sample_batch[0].shape[1]
-            model = SimpleMLP(input_dim=input_dim, num_classes=2).to(device)
+        # --- 关键修正：从数据集中动态获取类别数量 ---
+        try:
+            # unique_labels is an attribute we added to ClinicalDataset
+            num_classes = len(train_loader.dataset.unique_labels)
+            print(f"INFO: Detected {num_classes} classes for Fold {fold}.")
+        except AttributeError:
+            # Fallback if the attribute doesn't exist for some reason
+            print("WARN: Could not dynamically determine number of classes. Defaulting to 7.")
+            num_classes = 7
+        # --- 修正结束 ---
 
+        # 模型初始化 (使用动态的 num_classes)
+        if args.model_name == 'resnet':
+            # 获取输入特征维度
+            sample_features, _ = next(iter(train_loader))
+            input_dim = sample_features.shape[1]
+            model = SimpleResNet(input_dim=input_dim, num_classes=num_classes).to(device)
+        elif args.model_name == 'cnn':
+            sample_features, _ = next(iter(train_loader))
+            input_dim = sample_features.shape[1]
+            model = SimpleCNN(num_features=input_dim, num_classes=num_classes).to(device)
+        else:
+            sample_features, _ = next(iter(train_loader))
+            input_dim = sample_features.shape[1]
+            model = SimpleMLP(input_dim=input_dim, num_classes=num_classes).to(device)
+        
         # 损失函数和优化器
         class_weights = get_class_weights(train_loader.dataset).to(device)
         criterion = nn.CrossEntropyLoss(weight=class_weights)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-
+        
         best_val_loss = float('inf')
 
         for epoch in range(args.epochs):
@@ -78,16 +74,17 @@ def train(args):
 
             model.eval()
             val_loss = 0.0
+            
             fold_true_labels = []
             fold_pred_logits = []
-
+            
             with torch.no_grad():
                 for features, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [V]"):
                     features, labels = features.to(device), labels.to(device)
                     outputs = model(features)
                     loss = criterion(outputs, labels)
                     val_loss += loss.item()
-
+                    
                     fold_true_labels.append(labels.cpu().numpy())
                     fold_pred_logits.append(outputs.cpu().numpy())
 
@@ -99,33 +96,29 @@ def train(args):
                 best_val_loss = avg_val_loss
                 model_save_path = os.path.join(args.model_dir, f"best_model_fold_{fold}.pth")
                 torch.save(model.state_dict(), model_save_path)
-                print(f"✅ Best model for fold {fold} saved to {model_save_path}")
+                print(f"Model for fold {fold} saved to {model_save_path}")
 
-        print(f"💾 Saving predictions for Fold {fold}...")
+        print(f"Saving predictions for Fold {fold}...")
         fold_true_labels = np.concatenate(fold_true_labels, axis=0)
         fold_pred_logits = np.concatenate(fold_pred_logits, axis=0)
-
-        num_classes = fold_pred_logits.shape[1]
+        
         logit_columns = [f'logit_{i}' for i in range(num_classes)]
-
+        
         df_preds = pd.DataFrame(fold_pred_logits, columns=logit_columns)
         df_preds['true_label'] = fold_true_labels
-
+        
         preds_save_path = os.path.join(preds_output_dir, f'fold_{fold}_predictions.csv')
         df_preds.to_csv(preds_save_path, index=False)
-        print(f"✅ Predictions saved to {preds_save_path}")
+        print(f"✅ Predictions for fold {fold} saved to {preds_save_path}")
 
-
-# ===========================
-# 主程序入口
-# ===========================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train on clinical tabular data.")
-    parser.add_argument("--data_dir", type=str, required=True)
-    parser.add_argument("--model_dir", type=str, required=True)
-    parser.add_argument("--model_name", type=str, choices=["mlp", "cnn", "resnet"], default="resnet")
-    parser.add_argument("--epochs", type=int, default=10)
+    parser = argparse.ArgumentParser(description="Train a simple model on clinical data.")
+    parser.add_argument("--data_dir", type=str, required=True, help="Directory containing the processed fold data.")
+    parser.add_argument("--model_dir", type=str, required=True, help="Directory to save the trained models.")
+    parser.add_argument("--model_name", type=str, choices=['mlp', 'cnn', 'resnet'], default='resnet', help="Model to train.")
+    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs.")
     args = parser.parse_args()
 
     os.makedirs(args.model_dir, exist_ok=True)
+    
     train(args)
