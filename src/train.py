@@ -1,124 +1,56 @@
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
 import pandas as pd
+from torch.utils.data import Dataset
 import numpy as np
 import os
-import argparse
-from tqdm import tqdm
 
-# We don't need direct imports from dataset anymore, utils handles it.
-from .models import SimpleResNet, SimpleCNN, SimpleMLP
-from .utils import get_kfold_strafied_sampler, get_class_weights
-
-
-def train(args):
-    """主训练函数"""
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-
-    # 创建 k-fold 数据加载器
-    kfold_loader = get_kfold_strafied_sampler(args.data_dir, n_splits=5)
-    
-    preds_output_dir = os.path.join(args.model_dir, 'clinical_preds')
-    os.makedirs(preds_output_dir, exist_ok=True)
-
-    for fold, (train_loader, val_loader) in enumerate(kfold_loader):
-        print(f"\n===== Fold {fold} =====")
-
-        # --- 关键修正：从数据集中动态获取类别数量 ---
-        try:
-            # unique_labels is an attribute we added to ClinicalDataset
-            num_classes = len(train_loader.dataset.unique_labels)
-            print(f"INFO: Detected {num_classes} classes for Fold {fold}.")
-        except AttributeError:
-            # Fallback if the attribute doesn't exist for some reason
-            print("WARN: Could not dynamically determine number of classes. Defaulting to 7.")
-            num_classes = 7
-        # --- 修正结束 ---
-
-        # 模型初始化 (使用动态的 num_classes)
-        if args.model_name == 'resnet':
-            # 获取输入特征维度
-            sample_features, _ = next(iter(train_loader))
-            input_dim = sample_features.shape[1]
-            model = SimpleResNet(input_dim=input_dim, num_classes=num_classes).to(device)
-        elif args.model_name == 'cnn':
-            sample_features, _ = next(iter(train_loader))
-            input_dim = sample_features.shape[1]
-            model = SimpleCNN(num_features=input_dim, num_classes=num_classes).to(device)
-        else:
-            sample_features, _ = next(iter(train_loader))
-            input_dim = sample_features.shape[1]
-            model = SimpleMLP(input_dim=input_dim, num_classes=num_classes).to(device)
+# ----------------- 这是修正后的 ClinicalDataset 类 -----------------
+class ClinicalDataset(Dataset):
+    """专门用于加载和处理临床表格数据的Dataset类"""
+    # --- 这是唯一的修正：将默认的标签列改为 'Disease' ---
+    def __init__(self, csv_path, label_column='Disease'):
+        """
+        Args:
+            csv_path (string): CSV文件的路径。
+            label_column (string): 标签列的名称。
+        """
+        self.df = pd.read_csv(csv_path)
+        self.label_column = label_column
         
-        # 损失函数和优化器
-        class_weights = get_class_weights(train_loader.dataset).to(device)
-        criterion = nn.CrossEntropyLoss(weight=class_weights)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+        # --- 标签编码逻辑 ---
+        self.unique_labels = self.df[self.label_column].astype('category').cat.categories
+        self.label_to_int = {label: i for i, label in enumerate(self.unique_labels)}
+        print(f"INFO: Label mapping for {os.path.basename(csv_path)}: {self.label_to_int}")
+        self.labels = self.df[self.label_column].map(self.label_to_int).values
         
-        best_val_loss = float('inf')
+        features_df = self.df.drop(columns=[self.label_column])
+        self.features = features_df.select_dtypes(include=np.number).values
 
-        for epoch in range(args.epochs):
-            model.train()
-            train_loss = 0.0
-            for features, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [T]"):
-                features, labels = features.to(device), labels.to(device)
+    def __len__(self):
+        return len(self.df)
 
-                optimizer.zero_grad()
-                outputs = model(features)
-                loss = criterion(outputs, labels)
-                loss.backward()
-                optimizer.step()
-                train_loss += loss.item()
-
-            model.eval()
-            val_loss = 0.0
-            
-            fold_true_labels = []
-            fold_pred_logits = []
-            
-            with torch.no_grad():
-                for features, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [V]"):
-                    features, labels = features.to(device), labels.to(device)
-                    outputs = model(features)
-                    loss = criterion(outputs, labels)
-                    val_loss += loss.item()
-                    
-                    fold_true_labels.append(labels.cpu().numpy())
-                    fold_pred_logits.append(outputs.cpu().numpy())
-
-            avg_train_loss = train_loss / len(train_loader)
-            avg_val_loss = val_loss / len(val_loader)
-            print(f"Epoch {epoch+1}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
-
-            if avg_val_loss < best_val_loss:
-                best_val_loss = avg_val_loss
-                model_save_path = os.path.join(args.model_dir, f"best_model_fold_{fold}.pth")
-                torch.save(model.state_dict(), model_save_path)
-                print(f"Model for fold {fold} saved to {model_save_path}")
-
-        print(f"Saving predictions for Fold {fold}...")
-        fold_true_labels = np.concatenate(fold_true_labels, axis=0)
-        fold_pred_logits = np.concatenate(fold_pred_logits, axis=0)
+    def __getitem__(self, idx):
+        features = self.features[idx]
+        label = self.labels[idx]
         
-        logit_columns = [f'logit_{i}' for i in range(num_classes)]
+        features_tensor = torch.tensor(features, dtype=torch.float32)
+        label_tensor = torch.tensor(label, dtype=torch.long)
         
-        df_preds = pd.DataFrame(fold_pred_logits, columns=logit_columns)
-        df_preds['true_label'] = fold_true_labels
-        
-        preds_save_path = os.path.join(preds_output_dir, f'fold_{fold}_predictions.csv')
-        df_preds.to_csv(preds_save_path, index=False)
-        print(f"✅ Predictions for fold {fold} saved to {preds_save_path}")
+        return features_tensor, label_tensor
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train a simple model on clinical data.")
-    parser.add_argument("--data_dir", type=str, required=True, help="Directory containing the processed fold data.")
-    parser.add_argument("--model_dir", type=str, required=True, help="Directory to save the trained models.")
-    parser.add_argument("--model_name", type=str, choices=['mlp', 'cnn', 'resnet'], default='resnet', help="Model to train.")
-    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs.")
-    args = parser.parse_args()
+# ----------------- 您原有的MRIDataset保持不变 -----------------
+class MRIDataset(Dataset):
+    """
+    这个类用于加载MRI影像数据，我们将在下一步中使用它。
+    """
+    def __init__(self, data_path, label_column='label', transform=None):
+        self.df = pd.read_csv(data_path)
+        self.label_column = label_column
+        self.transform = transform
+        # ... 您原有的其他代码
 
-    os.makedirs(args.model_dir, exist_ok=True)
-    
-    train(args)
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        pass # 暂时留空
