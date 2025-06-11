@@ -31,9 +31,11 @@ def get_kfold_strafied_sampler(data_dir, n_splits=5, batch_size=32):
                 f"Data for fold {i} not found. Expected to find {train_path} and {val_path}"
             )
 
-        # Create dataset objects using your MRIDataset class
-        train_dataset = MRIDataset(csv_file=train_path)
-        val_dataset = MRIDataset(csv_file=val_path)
+        # --- THIS IS THE FIX ---
+        # Create dataset objects using the correct argument 'annotations_file'
+        train_dataset = MRIDataset(annotations_file=train_path)
+        val_dataset = MRIDataset(annotations_file=val_path)
+        # --- END OF FIX ---
 
         # Create DataLoader objects
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
