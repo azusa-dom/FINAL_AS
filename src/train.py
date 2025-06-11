@@ -6,8 +6,7 @@ import numpy as np  # 新增导入
 import os
 import argparse
 from tqdm import tqdm
-
-from .dataset import MRIDataset, create_dataloader
+from .dataset import TabularDataset
 from .models import SimpleResNet, SimpleCNN, SimpleMLP
 from .utils import get_kfold_strafied_sampler, get_class_weights
 
