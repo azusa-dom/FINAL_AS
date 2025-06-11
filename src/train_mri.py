@@ -14,6 +14,8 @@ def parse_args():
     p.add_argument("--epochs",      type=int, default=20)
     p.add_argument("--lr",          type=float, default=1e-4)
     p.add_argument("--device",      type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    p.add_argument("--num_workers", type=int, default=0,
+                   help="DataLoader 的 num_workers，设为0可避免多进程错误")
     return p.parse_args()
 
 def main():
@@ -49,14 +51,17 @@ def main():
 
     train_ds = Subset(full_ds, train_idx)
     val_ds   = Subset(full_ds, val_idx)
-    # 注意：Subset 共享 full_ds.dataset
     train_ds.dataset.transform = train_tf
     val_ds.dataset.transform   = val_tf
 
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size,
-                              shuffle=True,  num_workers=4)
-    val_loader   = DataLoader(val_ds,   batch_size=args.batch_size,
-                              shuffle=False, num_workers=4)
+    train_loader = DataLoader(train_ds,
+                              batch_size=args.batch_size,
+                              shuffle=True,
+                              num_workers=args.num_workers)
+    val_loader   = DataLoader(val_ds,
+                              batch_size=args.batch_size,
+                              shuffle=False,
+                              num_workers=args.num_workers)
 
     print(f"Train samples: {len(train_ds)},  Val samples: {len(val_ds)}")
 
@@ -66,7 +71,6 @@ def main():
     for name, param in model.named_parameters():
         if not (name.startswith("layer4") or name.startswith("fc")):
             param.requires_grad = False
-    # 二分类
     in_feats = model.fc.in_features
     model.fc = nn.Linear(in_feats, len(full_ds.classes))
     model = model.to(device)
@@ -118,18 +122,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-val_loss = 0.0
-correct = 0
-with torch.no_grad():
-    for imgs, labels in val_loader:
-        imgs, labels = imgs.to(device), labels.to(device)
-        outputs = model(imgs)
-        loss = criterion(outputs, labels)
-        val_loss += loss.item() * imgs.size(0)
-        preds = outputs.argmax(dim=1)
-        correct += (preds == labels).sum().item()
-val_loss /= len(val_loader.dataset)
-val_acc = correct / len(val_loader.dataset)
-
-print(f"Epoch {epoch}/{args.epochs}  "
-      f"Train Loss: {train_loss:.4f}  Val Loss: {val_loss:.4f}  Val Acc: {val_acc:.4f}")
