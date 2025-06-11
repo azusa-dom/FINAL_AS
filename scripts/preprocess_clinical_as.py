@@ -1,11 +1,11 @@
 import pandas as pd
 
-def clean_and_label_as(csv_path, out_path="cleaned_clinical_with_as.csv"):
+def clean_and_label_as(csv_path, out_path="cleaned_clinical_with_as.csv", only_positive=False):
     """
     加载临床数据，清洗缺失值和异常值，并构造伪标签 `pseudo_AS`
     保存为新的 CSV 文件
     """
-    df = pd.read_csv(csv_path)
+    df = pd.read_excel(csv_path)
 
     # 标准化列名（防止空格或大小写问题）
     df.columns = [c.strip().replace(" ", "").replace("-", "_") for c in df.columns]
@@ -26,7 +26,7 @@ def clean_and_label_as(csv_path, out_path="cleaned_clinical_with_as.csv"):
     for col in binary_cols:
         df[col].fillna("Negative", inplace=True)
 
-    # 🔍 强直性脊柱炎伪标签构建
+    # 🔍 强直性脊柱炎伪标签构建（根据 HLA-B27 + 炎症指标）
     def label_as(row):
         if row["HLA_B27"] == "Positive":
             if row["ESR"] > 20 or row["CRP"] > 10:
@@ -35,7 +35,11 @@ def clean_and_label_as(csv_path, out_path="cleaned_clinical_with_as.csv"):
 
     df["pseudo_AS"] = df.apply(label_as, axis=1)
 
-    # 可选：只保留用于后续建模的字段
+    # 选项：是否只保留预测为 AS 的病人
+    if only_positive:
+        df = df[df["pseudo_AS"] == 1]
+
+    # 可选：只保留用于建模的字段
     selected_cols = numeric_cols + binary_cols + ["pseudo_AS"]
     df[selected_cols].to_csv(out_path, index=False)
     print(f"✅ 临床数据已清洗并保存: {out_path}")
@@ -48,6 +52,8 @@ if __name__ == "__main__":
                         help="原始临床CSV路径（如 clinical_raw.csv）")
     parser.add_argument("--out", type=str, default="cleaned_clinical_with_as.csv",
                         help="输出清洗后的CSV文件名")
-    args = parser.parse_args()
+    parser.add_argument("--only_positive", action="store_true",
+                        help="是否仅保留伪AS样本（HLA-B27+ 且炎症升高）")
 
-    clean_and_label_as(args.csv, args.out)
+    args = parser.parse_args()
+    clean_and_label_as(args.csv, args.out, args.only_positive)
