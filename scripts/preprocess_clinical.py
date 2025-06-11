@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import argparse
-import os
+import osƒ
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
@@ -25,7 +25,7 @@ def create_preprocessor(numeric_features, categorical_features):
     ])
 
     # 为分类特征创建处理管道：1. 众数填充 -> 2. One-Hot编码
-    categorical_transformer = pd.Pipeline(steps=[
+    categorical_transformer = Pipeline(steps=[
         ('imputer', SimpleImputer(strategy='most_frequent')),
         ('onehot', OneHotEncoder(handle_unknown='ignore'))
     ])
