@@ -18,7 +18,7 @@ def get_kfold_strafied_sampler(data_dir, n_splits=5, batch_size=32):
             )
 
         train_dataset = ClinicalDataset(csv_path=train_path, label_column='pseudo_AS')
-        val_dataset = ClinicalDataset(csv_path=val_path, label_column='Disease')
+        val_dataset = ClinicalDataset(csv_path=val_path, label_column='pseudo_AS')  # ✅ 修复
         
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
