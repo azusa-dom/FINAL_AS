@@ -1,77 +1,62 @@
-"""Utility functions for training and evaluation."""
-
-import json
-import random
-import numpy as np
+import os
+import pandas as pd
 import torch
-import matplotlib.pyplot as plt
-from sklearn.metrics import (
-    roc_curve,
-    precision_recall_curve,
-    RocCurveDisplay,
-    PrecisionRecallDisplay,
-)
-from sklearn.calibration import calibration_curve
+from torch.utils.data import DataLoader
+from sklearn.utils.class_weight import compute_class_weight
+import numpy as np
+
+# We need to import your Dataset class to use it here
+from .dataset import MRIDataset 
 
 
-def save_json(obj, path):
-    with open(path, "w") as f:
-        json.dump(obj, f, indent=2)
+def get_kfold_strafied_sampler(data_dir, n_splits=5, batch_size=32):
+    """
+    A generator that finds pre-split fold data and yields DataLoaders for each fold.
+    
+    Args:
+        data_dir (str): The directory where 'fold_X_train.csv' and 'fold_X_val.csv' are saved.
+        n_splits (int): The number of folds to loop through.
+        batch_size (int): The batch size for the DataLoader.
+    
+    Yields:
+        (DataLoader, DataLoader): A tuple containing the train_loader and val_loader for a fold.
+    """
+    print(f"🔄 Loading {n_splits}-fold data from: {data_dir}")
+    for i in range(n_splits):
+        train_path = os.path.join(data_dir, f"fold_{i}_train.csv")
+        val_path = os.path.join(data_dir, f"fold_{i}_val.csv")
+
+        if not os.path.exists(train_path) or not os.path.exists(val_path):
+            raise FileNotFoundError(
+                f"Data for fold {i} not found. Expected to find {train_path} and {val_path}"
+            )
+
+        # Create dataset objects using your MRIDataset class
+        train_dataset = MRIDataset(csv_file=train_path)
+        val_dataset = MRIDataset(csv_file=val_path)
+
+        # Create DataLoader objects
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+
+        yield train_loader, val_loader
 
 
-def load_json(path):
-    with open(path) as f:
-        return json.load(f)
+def get_class_weights(dataset):
+    """
+    Computes class weights for handling imbalanced datasets.
 
-
-def seed_everything(seed: int = 42):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-
-def plot_roc_pr(y_true, prob, out_prefix):
-    fpr, tpr, _ = roc_curve(y_true, prob)
-    RocCurveDisplay(fpr=fpr, tpr=tpr).plot()
-    plt.savefig(f"{out_prefix}_roc.png")
-    plt.close()
-    precision, recall, _ = precision_recall_curve(y_true, prob)
-    PrecisionRecallDisplay(precision=precision, recall=recall).plot()
-    plt.savefig(f"{out_prefix}_pr.png")
-    plt.close()
-
-
-def plot_calibration_curve(y_true, prob, out_png):
-    prob_true, prob_pred = calibration_curve(y_true, prob, n_bins=10)
-    plt.plot(prob_pred, prob_true, marker="o")
-    plt.plot([0, 1], [0, 1], "--")
-    plt.xlabel("Predicted")
-    plt.ylabel("True")
-    plt.savefig(out_png)
-    plt.close()
-
-
-def decision_curve_analysis(y_true, prob, out_png):
-    thresholds = np.linspace(0.01, 0.99, 50)
-    net_benefit = []
-    for t in thresholds:
-        tp = ((prob >= t) & (y_true == 1)).sum()
-        fp = ((prob >= t) & (y_true == 0)).sum()
-        nb = tp / len(y_true) - fp / len(y_true) * t / (1 - t)
-        net_benefit.append(nb)
-    plt.plot(thresholds, net_benefit)
-    plt.xlabel("Threshold")
-    plt.ylabel("Net Benefit")
-    plt.savefig(out_png)
-    plt.close()
-
-
-def bootstrap_ci(metric_fn, y_true, prob, n_boot=1000, seed=42):
-    rng = np.random.RandomState(seed)
-    scores = []
-    for _ in range(n_boot):
-        idx = rng.choice(len(y_true), len(y_true), replace=True)
-        scores.append(metric_fn(y_true[idx], prob[idx]))
-    scores = np.array(scores)
-    return np.percentile(scores, [2.5, 97.5])
+    Args:
+        dataset (Dataset): A PyTorch Dataset object which has a 'labels' attribute.
+    
+    Returns:
+        torch.Tensor: A tensor containing the weight for each class.
+    """
+    # Access the labels from the dataset's underlying dataframe
+    labels = dataset.df[dataset.label_column].to_numpy()
+    unique_labels = np.unique(labels)
+    
+    class_weights = compute_class_weight('balanced', classes=unique_labels, y=labels)
+    
+    print(f"⚖️ Computed class weights: {class_weights}")
+    return torch.tensor(class_weights, dtype=torch.float32)
