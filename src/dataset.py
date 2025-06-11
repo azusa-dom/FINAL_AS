@@ -2,6 +2,8 @@ import torch
 import pandas as pd
 from torch.utils.data import Dataset
 import numpy as np
+import os
+
 
 # ----------------- 这是修正后的 ClinicalDataset 类 -----------------
 class ClinicalDataset(Dataset):
