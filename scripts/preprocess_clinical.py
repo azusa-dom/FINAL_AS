@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import argparse
-import osƒ
+import os
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
