@@ -1,47 +1,55 @@
+#!/usr/bin/env python3
+# coding: utf-8
+
 import argparse
 import os
+import sys
 import numpy as np
 import torch
 import torch.nn as nn
 from pathlib import Path
+from collections import Counter
 from sklearn.model_selection import GroupKFold
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms, models
-from collections import Counter
+from PIL import Image
 
 def parse_args():
-    p = argparse.ArgumentParser("5-fold CV + EarlyStop + WD 微调 ResNet")
-    p.add_argument("--data_dir",    type=str, default="AS_Finetune_Data_balanced")
-    p.add_argument("--batch_size",  type=int, default=16)
-    p.add_argument("--max_epochs",  type=int, default=10)
-    p.add_argument("--lr",          type=float, default=1e-4)
-    p.add_argument("--weight_decay",type=float, default=1e-4)
-    p.add_argument("--device",      type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    p.add_argument("--num_workers", type=int, default=0)
-    p.add_argument("--n_splits",    type=int, default=5)
-    p.add_argument("--patience",    type=int, default=3,
-                   help="EarlyStopping 的容忍轮次")
+    p = argparse.ArgumentParser("5-fold CV + EarlyStop + WD 微调 ResNet50")
+    p.add_argument("--data_dir",     type=str, default="AS_Finetune_Data_balanced",
+                   help="平衡后数据集根目录，包含 0_Healthy/ 和 1_AS/")
+    p.add_argument("--batch_size",   type=int,   default=16)
+    p.add_argument("--max_epochs",   type=int,   default=10)
+    p.add_argument("--lr",           type=float, default=1e-4)
+    p.add_argument("--weight_decay", type=float, default=1e-4)
+    p.add_argument("--device",       type=str,   default="cuda" if torch.cuda.is_available() else "cpu")
+    p.add_argument("--num_workers",  type=int,   default=0,
+                   help="DataLoader 的 num_workers，设为0可避免多进程问题")
+    p.add_argument("--n_splits",     type=int,   default=5,
+                   help="GroupKFold 折数")
+    p.add_argument("--patience",     type=int,   default=3,
+                   help="EarlyStopping 的容忍轮数")
     return p.parse_args()
 
-# ✅ 你可以在这里自定义受试者 ID 映射
+# —— 一次性运行，生成 prefix → placeholder ID 映射模板 —— 
+def extract_unique_prefixes(data_dir):
+    files = list(Path(data_dir).rglob("*.png"))
+    prefixes = sorted(set("_".join(p.stem.split("_")[:2]) for p in files))
+    print("\n🧩 Detected prefixes:\n")
+    for i, pref in enumerate(prefixes, 1):
+        print(f'    "{pref}": "P{str(i).zfill(3)}",')
+    print("\n✅ 请复制上面内容到 custom_id_map，然后注释掉此行调用。")
+    sys.exit(0)
+
+# —— 在此处粘贴一次性生成的映射 —— 
 custom_id_map = {
-    "KNEE_1": "P001",
-    "SPINE_1": "P001",
-    "KNEE_2": "P002",
-    "SPINE_2": "P002",
-    "SJI_1": "P003",
-    "SJI_2": "P004",
-    "sub-01": "P005",
-    "sub-02": "P006",
-    "sub-03": "P007",
-    "sub-04": "P008",
-    "sub-05": "P009",
-    "sub-06": "P010",
-    "sub-07": "P011",
-    "sub-08": "P012",
-    "sub-09": "P013",
-    "sub-10": "P014",
-    # ... 补充完整你数据中的所有前缀
+    # "KNEE_1":  "P001",
+    # "SPINE_1": "P001",  # 合并同一病人
+    # "SIJ_1":   "P002",
+    # "SIJ_2":   "P003",
+    # "sub-01":  "P004",
+    # "sub-02":  "P005",
+    # ... 继续粘贴并手动合并
 }
 
 def get_subject_id(filepath):
@@ -62,44 +70,46 @@ def build_model(num_classes, device):
 
 def main():
     args = parse_args()
+    # extract_unique_prefixes(args.data_dir)  # ← 第一次生成映射时取消注释
     device = torch.device(args.device)
-    print(f"Device: {device}")
+    print(f"\nUsing device: {device}\n")
 
-    # 数据增强
+    # 1) 数据增强
     train_tf = transforms.Compose([
         transforms.Resize((224,224)),
         transforms.RandomRotation(15),
         transforms.RandomAffine(0, translate=(0.2,0.2), scale=(0.8,1.2)),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize([0.485,0.456,0.406], [0.229,0.224,0.225]),
+        transforms.Normalize([0.485,0.456,0.406],
+                             [0.229,0.224,0.225]),
     ])
     val_tf = transforms.Compose([
         transforms.Resize((224,224)),
         transforms.ToTensor(),
-        transforms.Normalize([0.485,0.456,0.406], [0.229,0.224,0.225]),
+        transforms.Normalize([0.485,0.456,0.406],
+                             [0.229,0.224,0.225]),
     ])
 
-    # 加载数据
+    # 2) 全量数据加载（不指定 transform）
     full_ds = datasets.ImageFolder(args.data_dir, transform=None)
     samples = full_ds.samples
-    paths  = [p for p, _ in samples]
-    labels = [l for _, l in samples]
+    paths  = [p for p,_ in samples]
+    labels = [l for _,l in samples]
     groups = [get_subject_id(p) for p in paths]
 
     print(f"Total images: {len(paths)}")
     print(f"Unique subjects: {len(set(groups))}")
-    print(f"Class mapping: {full_ds.class_to_idx}")
+    print(f"Class mapping: {full_ds.class_to_idx}\n")
 
+    # 3) GroupKFold 交叉验证
     gkf = GroupKFold(n_splits=args.n_splits)
     fold_accuracies = []
 
     for fold, (train_idx, val_idx) in enumerate(gkf.split(paths, labels, groups), 1):
-        print(f"\n=== Fold {fold}/{args.n_splits} ===")
-
-        # 统计每类验证样本数
-        val_label_count = Counter([labels[i] for i in val_idx])
-        print(f"Val class distribution: {val_label_count}")
+        print(f"=== Fold {fold}/{args.n_splits} ===")
+        cnt = Counter(labels[i] for i in val_idx)
+        print(f"Val distribution: {cnt}")
 
         train_ds = Subset(full_ds, train_idx)
         val_ds   = Subset(full_ds, val_idx)
@@ -107,11 +117,11 @@ def main():
         val_ds.dataset.transform   = val_tf
 
         train_loader = DataLoader(train_ds, batch_size=args.batch_size,
-                                  shuffle=True, num_workers=args.num_workers)
-        val_loader   = DataLoader(val_ds, batch_size=args.batch_size,
+                                  shuffle=True,  num_workers=args.num_workers)
+        val_loader   = DataLoader(val_ds,   batch_size=args.batch_size,
                                   shuffle=False, num_workers=args.num_workers)
 
-        model = build_model(num_classes=len(full_ds.classes), device=device)
+        model = build_model(len(full_ds.classes), device)
         criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(
             filter(lambda p: p.requires_grad, model.parameters()),
@@ -124,7 +134,7 @@ def main():
         for epoch in range(1, args.max_epochs+1):
             # 训练
             model.train()
-            total_loss = 0
+            total_loss = 0.0
             for imgs, labs in train_loader:
                 imgs, labs = imgs.to(device), labs.to(device)
                 optimizer.zero_grad()
@@ -145,7 +155,8 @@ def main():
                     correct += (preds == labs).sum().item()
             val_acc = correct / len(val_loader.dataset)
 
-            print(f"Epoch {epoch}/{args.max_epochs} | Train Loss: {train_loss:.4f} | Val Acc: {val_acc:.4f}")
+            print(f"Epoch {epoch}/{args.max_epochs} | "
+                  f"Train Loss: {train_loss:.4f} | Val Acc: {val_acc:.4f}")
 
             # EarlyStopping
             if val_acc > best_val_acc:
@@ -155,18 +166,18 @@ def main():
             else:
                 epochs_no_improve += 1
                 if epochs_no_improve >= args.patience:
-                    print(f"🛑 Early stopped after {args.patience} epochs with no improvement.")
+                    print(f"🛑 Early stopping after {args.patience} no-improve epochs")
                     break
 
-        print(f"✅ Fold {fold} best ValAcc: {best_val_acc:.4f}")
+        print(f"✅ Fold {fold} best Val Acc: {best_val_acc:.4f}\n")
         fold_accuracies.append(best_val_acc)
 
-    # 交叉验证结果汇总
     avg_acc = sum(fold_accuracies) / len(fold_accuracies)
-    print(f"\n=== Cross-Validation Summary ===")
+    print("=== CV Summary ===")
     for i, acc in enumerate(fold_accuracies, 1):
-        print(f"  Fold {i}: {acc:.4f}")
-    print(f"  Average: {avg_acc:.4f}")
+        print(f" Fold {i}: {acc:.4f}")
+    print(f" Average Val Acc: {avg_acc:.4f}\n")
 
 if __name__ == "__main__":
+    from collections import Counter
     main()
