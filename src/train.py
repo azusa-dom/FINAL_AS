@@ -7,7 +7,8 @@ import os
 import argparse
 from tqdm import tqdm
 from src.models import SimpleResNet, SimpleCNN, SimpleMLP
-from utils import get_kfold_strafied_sampler, get_class_weights
+from src.utils import get_kfold_strafied_sampler, get_class_weights
+
 
 
 
