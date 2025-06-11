@@ -42,7 +42,6 @@ def ensure_clean_dir(dir_path: Path):
     dir_path.mkdir(parents=True, exist_ok=True)
 
 def extract_random_slices(nifti_path: Path, out_dir: Path, max_slices: int):
-    """从单个 NIfTI 中随机抽取若干轴向切片并保存为 PNG"""
     img = sitk.ReadImage(str(nifti_path))
     arr = sitk.GetArrayFromImage(img)  # [Z, Y, X]
     Z = arr.shape[0]
@@ -67,7 +66,6 @@ def build_healthy(args):
         if not anat.exists(): continue
         niftis = list(anat.glob("*.nii*"))
         if not niftis: continue
-        # 优先 T2TSE，否则任取第一个
         nifti = next((f for f in niftis if "T2TSE" in f.name), niftis[0])
         print(f"  - {sub.name}: {nifti.name}")
         extract_random_slices(nifti, healthy_out, args.n_slices)
@@ -98,9 +96,7 @@ def build_as(args):
 def main():
     args = parse_args()
     print("🚀 开始构建平衡训练集 …\n")
-    # 清空输出
     ensure_clean_dir(args.out_root)
-    # 构建两组
     build_healthy(args)
     build_as(args)
     print("🎯 平衡数据集已完成！")
