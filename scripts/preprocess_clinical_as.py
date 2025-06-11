@@ -39,9 +39,16 @@ def clean_and_label_as(csv_path, out_path="cleaned_clinical_with_as.csv", only_p
     if only_positive:
         df = df[df["pseudo_AS"] == 1]
 
-    # ✅ 可选：采样子集
-    if sample_size is not None and sample_size < len(df):
-        df = df.sample(n=sample_size, random_state=42)
+    # ✅ 平衡采样：每类各抽 sample_size // 2 个
+    if sample_size is not None:
+        pos = df[df["pseudo_AS"] == 1]
+        neg = df[df["pseudo_AS"] == 0]
+        per_class = sample_size // 2
+        df = pd.concat([
+            pos.sample(n=min(len(pos), per_class), random_state=42),
+            neg.sample(n=min(len(neg), per_class), random_state=42)
+        ])
+
 
     # 保存清洗后的文件
     selected_cols = numeric_cols + binary_cols + ["pseudo_AS"]
