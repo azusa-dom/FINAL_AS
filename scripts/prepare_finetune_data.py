@@ -64,12 +64,12 @@ def main():
     """
     # --- 配置区域 ---
     # !! 请根据您的实际路径修改下面的变量 !!
-    
-    # 包含原始NIfTI文件的文件夹
+
     # 'path/to/SpineNerve_data' 是您14个健康人数据的父目录
-    healthy_source_dir = 'path/to/SpineNerve_data' 
+    healthy_source_dir = '/Users/hydra/Downloads/0' 
     # 'path/to/Mendeley_data' 是您9个AS病人数据的父目录
-    as_source_dir = 'path/to/Mendeley_data' 
+    as_source_dir = '/Users/hydra/Downloads/1'
+   
     
     # 我们准备好的、用于存放2D切片的文件夹
     output_finetune_dir = 'AS_Finetune_Data'
