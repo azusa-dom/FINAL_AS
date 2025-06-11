@@ -17,7 +17,7 @@ def get_kfold_strafied_sampler(data_dir, n_splits=5, batch_size=32):
                 f"Data for fold {i} not found. Expected to find {train_path} and {val_path}"
             )
 
-        train_dataset = ClinicalDataset(csv_path=train_path, label_column='Disease')
+        train_dataset = ClinicalDataset(csv_path=train_path, label_column='pseudo_AS')
         val_dataset = ClinicalDataset(csv_path=val_path, label_column='Disease')
         
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
