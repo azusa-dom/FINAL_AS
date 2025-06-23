@@ -1,36 +1,60 @@
-import os
-import pandas as pd
 import torch
-from torch.utils.data import DataLoader
-from sklearn.utils.class_weight import compute_class_weight
+from torch.utils.data import DataLoader, Subset
+from sklearn.model_selection import StratifiedKFold
 import numpy as np
-from .dataset import ClinicalDataset 
+import os
+from src.dataset import ClinicalDataset # 确保从我们修改过的dataset.py导入
 
-def get_kfold_strafied_sampler(data_dir, n_splits=5, batch_size=32):
-    print(f"🔄 Loading {n_splits}-fold data from: {data_dir}")
+def get_kfold_strafied_sampler(data_dir, n_splits=5, batch_size=32, id_column='patient_id', label_column='Disease'):
+    """
+    为K-折交叉验证创建数据加载器列表。
+    这个版本现在可以将 id_column 和 label_column 参数传递给 ClinicalDataset。
+    """
+    kfold_loaders = []
     for i in range(n_splits):
-        train_path = os.path.join(data_dir, f"fold_{i}_train.csv")
-        val_path = os.path.join(data_dir, f"fold_{i}_val.csv")
+        train_csv = os.path.join(data_dir, f"fold_{i}_train.csv")
+        val_csv = os.path.join(data_dir, f"fold_{i}_val.csv")
 
-        if not os.path.exists(train_path) or not os.path.exists(val_path):
-            raise FileNotFoundError(
-                f"Data for fold {i} not found. Expected to find {train_path} and {val_path}"
-            )
+        if not os.path.exists(train_csv) or not os.path.exists(val_csv):
+            # 这是一个预期的行为，如果文件不存在，说明需要先运行预处理脚本
+            # 所以我们只打印信息而不是抛出错误，让主程序决定如何处理。
+            print(f"提示: Fold {i} 的数据文件不存在, 需要先运行 `scripts/preprocess_clinical.py`。")
+            return None # 返回None表示无法创建加载器
 
-        train_dataset = ClinicalDataset(csv_path=train_path, label_column='pseudo_AS')
-        val_dataset = ClinicalDataset(csv_path=val_path, label_column='pseudo_AS')  # ✅ 修复
+        # 【核心修改】在创建Dataset实例时，传入id_column和正确的label_column
+        train_dataset = ClinicalDataset(csv_path=train_csv, label_column=label_column, id_column=id_column)
+        val_dataset = ClinicalDataset(csv_path=val_csv, label_column=label_column, id_column=id_column)
+
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
-
-        yield train_loader, val_loader
+        kfold_loaders.append((train_loader, val_loader))
+        
+    return kfold_loaders
 
 
 def get_class_weights(dataset):
-    labels = dataset.labels
-    unique_labels = np.unique(labels)
+    """
+    根据数据集中各类别的样本数量，计算类别权重。
+    """
+    if not hasattr(dataset, 'labels'):
+        print("警告: 数据集没有 'labels' 属性, 无法计算类别权重。")
+        return None
+
+    labels = np.array(dataset.labels)
+    unique, counts = np.unique(labels, return_counts=True)
     
-    class_weights = compute_class_weight('balanced', classes=unique_labels, y=labels)
+    if len(unique) < 2:
+        print("警告: 数据集中只存在一个类别, 无法计算类别权重。")
+        return None
+
+    class_counts = dict(zip(unique, counts))
     
-    print(f"⚖️ Computed class weights: {class_weights}")
-    return torch.tensor(class_weights, dtype=torch.float32)
+    total_samples = sum(class_counts.values())
+    num_classes = len(class_counts)
+    
+    weights = [total_samples / (num_classes * class_counts.get(i, 1)) for i in sorted(class_counts.keys())]
+    
+    print(f"INFO: Calculated class weights: {weights}")
+    return torch.tensor(weights, dtype=torch.float32)
+
