@@ -9,15 +9,13 @@ from tqdm import tqdm
 from src.models import SimpleResNet, SimpleCNN, SimpleMLP
 from src.utils import get_kfold_strafied_sampler, get_class_weights
 
-
-
-
 def train(args):
     """主训练函数"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    kfold_loader = get_kfold_strafied_sampler(args.data_dir, n_splits=5)
+    # 【修改 1】让数据加载器知道要去处理 patient_id
+    kfold_loader = get_kfold_strafied_sampler(args.data_dir, n_splits=5, id_column='patient_id')
     
     preds_output_dir = os.path.join(args.model_dir, 'clinical_preds')
     os.makedirs(preds_output_dir, exist_ok=True)
@@ -28,7 +26,8 @@ def train(args):
         num_classes = len(train_loader.dataset.unique_labels)
         print(f"INFO: Detected {num_classes} classes for Fold {fold}.")
 
-        sample_features, _ = next(iter(train_loader))
+        # 【修改 2】现在dataloader会返回3个值 (features, labels, pids)，相应地解包
+        sample_features, _, _ = next(iter(train_loader))
         input_dim = sample_features.shape[1]
 
         if args.model_name == 'resnet':
@@ -47,7 +46,8 @@ def train(args):
         for epoch in range(args.epochs):
             model.train()
             train_loss = 0.0
-            for features, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [T]"):
+            # 【修改 3】训练循环同样解包3个值，但ID在这里用不到，所以用 _ 忽略
+            for features, labels, _ in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [T]"):
                 features, labels = features.to(device), labels.to(device)
                 optimizer.zero_grad()
                 outputs = model(features)
@@ -60,15 +60,20 @@ def train(args):
             val_loss = 0.0
             fold_true_labels = []
             fold_pred_logits = []
+            # 【修改 4】创建一个新列表来收集验证集的 patient_id
+            fold_patient_ids = []
             
             with torch.no_grad():
-                for features, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [V]"):
+                # 【修改 5】验证循环解包3个值，这次我们需要ID
+                for features, labels, ids in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [V]"):
                     features, labels = features.to(device), labels.to(device)
                     outputs = model(features)
                     loss = criterion(outputs, labels)
                     val_loss += loss.item()
                     fold_true_labels.append(labels.cpu().numpy())
                     fold_pred_logits.append(outputs.cpu().numpy())
+                    # 【修改 6】将当前批次的ID收集起来
+                    fold_patient_ids.extend(ids)
 
             avg_train_loss = train_loss / len(train_loader)
             avg_val_loss = val_loss / len(val_loader)
@@ -88,7 +93,12 @@ def train(args):
         
         df_preds = pd.DataFrame(fold_pred_logits, columns=logit_columns)
         df_preds['true_label'] = fold_true_labels
+        # 【修改 7 - 核心】将收集到的ID添加到DataFrame中
+        df_preds['patient_id'] = fold_patient_ids
         
+        # 确保 patient_id 是第一列，方便查看
+        df_preds = df_preds[['patient_id'] + [col for col in df_preds.columns if col != 'patient_id']]
+
         preds_save_path = os.path.join(preds_output_dir, f'fold_{fold}_predictions.csv')
         df_preds.to_csv(preds_save_path, index=False)
         print(f"✅ Predictions for fold {fold} saved to {preds_save_path}")
