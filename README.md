@@ -1,179 +1,132 @@
+Multimodal Learning Pipeline for Early Diagnosis of Ankylosing Spondylitis (AS)
+This project provides a reproducible machine learning pipeline for the early diagnosis of Axial Spondyloarthritis (AxSpA), including Ankylosing Spondylitis. The pipeline features separate, unimodal diagnostic models for sacroiliac joint MRI and clinical data, respectively. It further implements a Late Fusion model that integrates outputs from both branches to improve diagnostic performance.
 
-# Multimodal AS Diagnosis Pipeline
+Core Features
+Unimodal Diagnostic Branches:
+MRI Branch: A 3D Convolutional Neural Network based on a ResNet-50 backbone, fine-tuned to identify pathological features from MRI scans.
+Clinical Branch: A a Fully-Connected Neural Network (FCNN) trained on structured clinical data.
+Implemented Fusion Strategy:
+Late Fusion: An XGBoost model that combines the prediction probability from the MRI branch with structured clinical features to yield a final, integrated diagnosis.
+Interpretability and Clinical Utility Analysis:
+SHAP (SHapley Additive exPlanations): Used to analyze the contribution of each clinical feature to the model's predictions.
+Decision Curve Analysis (DCA): Implemented to assess the net benefit and clinical utility of the models.
+Reproducible Workflow:
+The entire pipeline, from data preprocessing and splitting to model training and evaluation, is automated via the scripts/runall.sh script.
+Pipeline Overview
+Data Preprocessing and Splitting
 
-This project implements a reproducible deep-learning pipeline for early detection and treatment-response prediction in axial spondyloarthritis (axSpA), including ankylosing spondylitis (AS). Models are developed separately for sacroiliac‐joint MRI and clinical features; multimodal fusion is planned once matched data are available.
+scripts/preprocess_clinical_as.py: Cleans the raw clinical data (e.g., handles missing values).
+scripts/build_balanced_dataset.py: Performs a patient-level stratified split of the data into training (70%), validation (15%), and test (15%) sets to prevent data leakage.
+MRI Branch (src/train_mri.py)
 
-## Pipeline Overview
+Fine-tunes a ResNet-50 backbone pre-trained on ImageNet.
+Employs a 5-fold stratified cross-validation strategy for robust training.
+Uses a fixed set of hyperparameters (e.g., lr=1e-4); does not include a hyperparameter search.
+Clinical Branch (src/train.py)
 
-1. **Data splitting**  
-   - Patient-level stratified split (70% train / 15% validation / 15% test)  
-   - Ensures no data leakage  
+Trains a multi-layer Fully-Connected Neural Network (FCNN).
+Follows the same 5-fold cross-validation strategy as the MRI branch.
+Late Fusion (src/train_late_fusion.py)
 
-2. **MRI branch**  
-   - Fine-tune ResNet-50 backbone on preprocessed MRI slices (or volumes)  
-   - 5-fold stratified cross-validation  
-   - 10 random hyperparameter trials per fold  
-   - Test-set evaluation with 200 bootstraps to compute 95% CI for AUROC, AUPRC, Brier score  
+Uses the prediction probability from the trained MRI model as a new, high-level feature.
+Concatenates this single "imaging feature" with the original clinical features.
+Trains an XGBoost classifier on this augmented feature set to produce the final fused prediction.
+Evaluation and Analysis (src/evaluate.py, scripts/plot_shap_dca.py)
 
-3. **Clinical branch**  
-   - Fully connected neural network (FCNN) on structured features (e.g. CRP, ESR, BASDAI)  
-   - Same CV and bootstrap evaluation strategy as MRI branch  
-
-4. **Fusion strategies (future work)**  
-   - **Early fusion**: transformer encoder on combined embeddings  
-   - **Late fusion**: XGBoost on concatenated MRI + clinical predictions  
-   - Fusion scripts are included but require patient-matched MRI & clinical data  
-
-5. **Interpretability & clinical utility**  
-   - SHAP (global and local explanations)  
-   - Decision Curve Analysis (DCA) for net benefit assessment  
-
-## Directory Structure
-```
-bash
+Evaluates the performance of all models (MRI-only, Clinical-only, Late Fusion) on the hold-out test set.
+Calculates 95% confidence intervals for metrics like AUROC and AUPRC using 200 bootstrap iterations.
+Generates and saves SHAP feature importance plots and Decision Curves.
+Directory Structure
 FINAL_AS/
 ├── README.md
-├── runall.sh                   # One-click pipeline driver (see “Usage”)
-├── data_splits/
-│   ├── train.csv
-│   ├── val.csv
-│   └── test.csv
+├── requirements.txt
+├── environment.yml             # Conda environment definition file
 ├── data/
-│   ├── raw/
-│   │   ├── clinical.csv
-│   │   └── mri_images/          # NIfTI: patient001.nii.gz, …
-│   └── processed/
-│       ├── clinical_clean.csv
-│       └── mri_preprocessed/    # Resampled, normalized volumes
-├── src/
-│   ├── preprocess.py
-│   ├── split_data.py
-│   ├── train_mri.py
-│   ├── train_clinical.py
-│   ├── train_fusion.py         # Requires matched data
-│   ├── evaluate.py
-│   ├── datasets/
-│   │   ├── mri_dataset.py
-│   │   ├── clin_dataset.py
-│   │   └── fusion_dataset.py    # Expects paired records
-│   ├── models/
-│   │   ├── mri_model.py
-│   │   ├── clin_model.py
-│   │   └── fusion_model.py
-│   └── utils/
-│       ├── metrics.py
-│       ├── shap_utils.py
-│       └── dca_utils.py
-├── checkpoints/
+│   ├── rheumatic_autoimmune_disease.csv # Raw clinical data CSV
+│   └── (User must provide MRI NIfTI files separately)
+├── models/                     # Stores trained model weights and predictions
 │   ├── mri_model/
-│   ├── clin_model/
-│   └── fusion_model/
-└── results/
-    ├── metrics.txt
-    ├── roc_curves/
-    ├── pr_curves/
-    ├── shap_summary.png
-    └── dca_curve.png
-```
+│   ├── clinical_model/
+│   └── late_fusion_model/
+├── results/                    # Stores evaluation metrics and plots
+│   ├── metrics.txt
+│   ├── roc_curve.png
+│   ├── pr_curve.png
+│   ├── shap_summary.png
+│   └── dca_curve.png
+├── scripts/
+│   ├── runall.sh               # One-click script to run the full pipeline
+│   ├── preprocess_clinical_as.py
+│   ├── build_balanced_dataset.py
+│   └── plot_shap_dca.py
+└── src/
+    ├── dataset.py              # PyTorch Dataset definitions
+    ├── models.py               # Model architectures (ResNet3D, FCNN)
+    ├── train.py                # Script to train the clinical model
+    ├── train_mri.py            # Script to train the MRI model
+    ├── train_late_fusion.py    # Script to train the late fusion XGBoost model
+    ├── evaluate.py             # Script to evaluate model performance
+    └── utils.py                # Utility functions
+Environment Setup
+It is recommended to use Conda to create an isolated Python environment.
 
-## Environment & Dependencies
+Bash
 
-* **Python** ≥ 3.8
-* Create a fresh virtual environment (conda or venv) and install:
+# 1. Create and activate the Conda environment from the .yml file
+conda env create -f environment.yml
+conda activate axspa_env
 
-```txt
-torch>=1.10.0
-torchvision>=0.11.0
-scikit-learn>=1.0.0
-xgboost>=1.5.0
-pandas>=1.3.0
-numpy>=1.19.0
-shap>=0.40.0
-matplotlib>=3.4.0
-tqdm>=4.60.0
-pydicom>=2.2.0
-```
-
-```bash
+# 2. (Alternative) If not using Conda, install dependencies via pip
 pip install -r requirements.txt
-```
+Key Dependencies: torch, xgboost, pandas, scikit-learn, numpy, shap, matplotlib. See requirements.txt for the full list.
 
-## Data Preparation
+Data Preparation
+Clinical Data: Place your raw clinical data file, named rheumatic_autoimmune_disease.csv, in the data/ directory. This file must contain a patient_id column, a label column (0/1), and other clinical features.
+MRI Data: This pipeline expects MRI scans in NIfTI (.nii or .nii.gz) format.
+Important Note: Upstream preprocessing steps, such as DICOM-to-NIfTI conversion and N4 bias field correction, must be performed offline before running this pipeline. The repository does not include integrated scripts for these initial steps.
+Place the preprocessed NIfTI files in a directory of your choice and ensure the path is correctly configured in src/train_mri.py.
+Usage
+One-Click Execution (Recommended)
+The runall.sh script automates the entire experimental workflow in the correct sequence.
 
-1. **Raw clinical data** (`data/raw/clinical.csv`):
+Bash
 
-   * Columns: `patient_id`, `label` (0/1), CRP, ESR, BASDAI, …
-   * Note: HLA-B27 is excluded due to missing values.
+bash scripts/runall.sh
+This script will sequentially execute data preprocessing, data splitting, MRI model training, clinical model training, late fusion model training, and final evaluation on the test set.
 
-2. **Raw MRI images** (`data/raw/mri_images/`):
+Step-by-Step Execution
+You can also run each step of the pipeline manually, which is useful for debugging.
 
-   * Format: NIfTI (`.nii` / `.nii.gz`)
-   * Filenames must encode `patient_id` for future pairing.
+Bash
 
-3. **Processing scripts**:
+# 1. Preprocess clinical data and split the dataset
+python scripts/preprocess_clinical_as.py
+python scripts/build_balanced_dataset.py
 
-   * `preprocess.py` handles normalization, resampling.
-   * `split_data.py` generates `data_splits/*.csv`.
+# 2. Train the unimodal models (using 5-fold CV)
+python src/train_mri.py
+python src/train.py
 
-## Usage
+# 3. Train the late fusion model
+python src/train_late_fusion.py
 
-### 1. One-click execution
+# 4. Run final evaluation on the test set and generate plots
+python src/evaluate.py
+python scripts/plot_shap_dca.py
+Expected Output
+Evaluation metrics will be saved to results/metrics.txt, and visualization plots will be saved in the results/ directory. An example metrics.txt format is shown below:
 
-```bash
-bash runall.sh
-```
-
-This sequentially:
-
-1. Splits data (train/val/test).
-2. Preprocesses MRI volumes.
-3. Fine-tunes ResNet-50 on MRI branch.
-4. Trains clinical FCNN on structured data.
-5. (Optional) Runs fusion model if matched data are present.
-6. Evaluates all models and saves metrics & visualizations.
-
-### 2. Individual steps
-
-```bash
-python src/preprocess.py
-python src/split_data.py
-python src/train_mri.py   --config configs/mri.yaml
-python src/train_clinical.py --config configs/clin.yaml
-python src/train_fusion.py  --config configs/fusion.yaml  # only if paired data
-python src/evaluate.py      --splits test
-```
-
-## Results Format
-
-Metrics are saved in `results/metrics.txt` and plots under `results/`. Example:
-
-```
-[MRI-only]     AUROC: 0.78 (95% CI 0.72–0.84)
+[MRI-only]      AUROC: 0.78 (95% CI 0.72–0.84)
 [Clinical-only] AUROC: 0.82 (95% CI 0.77–0.87)
-[Early-fusion] AUROC: 0.89 (95% CI 0.85–0.93)
-[Late-fusion]  AUROC: 0.86 (95% CI 0.81–0.90)
-```
+[Late-fusion]   AUROC: 0.86 (95% CI 0.81–0.90)
+(Note: These values are for illustration purposes only.)
 
-## Limitations
-
-* MRI and clinical datasets are not yet patient-matched; fusion is not currently executable.
-* HLA-B27 status excluded due to missingness.
-* Sample size may limit generalisability.
-
-## Future Work
-
-* Acquire matched MRI + clinical cohort for full multimodal fusion.
-* Incorporate SHAP saliency maps for spatial interpretability.
-* Perform Decision Curve Analysis on prospective data.
-* Develop a web-based clinical decision-support prototype.
-
-## References
-
-1. Jamaludin A, et al. *Medical Image Analysis*, 2017;40:67–77.
-2. Ai F, et al. *Rheumatology International*, 2012;32(12):4009–4015.
-3. Bennani S, et al. medRxiv, 2025.
-4. Hosny A, et al. *Nature Reviews Cancer*, 2018;18:500–510.
-5. Li H, et al. *Frontiers in Public Health*, 2023;11:1063633.
-
-
-```
+Known Limitations
+Incomplete MRI Preprocessing Integration: As noted, key upstream preprocessing steps (DICOM conversion, N4 correction) are not integrated into the main pipeline and must be run offline.
+Single-Center Data: The models were developed using data from a single institution, and their generalizability to external, multi-center datasets has not yet been validated.
+No Domain-Specific Pre-training: The MRI model was fine-tuned from ImageNet weights without an intermediate pre-training step on a large medical imaging dataset.
+Future Work
+Implement Early Fusion Models: Develop and integrate an early fusion strategy (e.g., using a Transformer architecture) to compare against the current late fusion model.
+Enhance MRI Interpretability: Implement Grad-CAM visualizations to create saliency maps that highlight the regions of the MRI the model focuses on.
+Multi-Center Validation: Validate the performance and robustness of the models on external datasets from different hospitals and scanners.
+Develop a Decision-Support Prototype: Build a web-based Clinical Decision Support System (CDSS) prototype for clinical trial and feedback.
