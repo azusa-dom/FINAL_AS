@@ -8,7 +8,7 @@ from src.dataset import ClinicalDataset # 确保从我们修改过的dataset.py�
 def get_kfold_strafied_sampler(data_dir, n_splits=5, batch_size=32, id_column='patient_id', label_column='Disease'):
     """
     为K-折交叉验证创建数据加载器列表。
-    这个版本现在可以将 id_column 和 label_column 参数传递给 ClinicalDataset。
+    这个版本现在可以将 id_column 参数传递给 ClinicalDataset 并且禁用了多进程加载以进行调试。
     """
     kfold_loaders = []
     for i in range(n_splits):
@@ -16,17 +16,15 @@ def get_kfold_strafied_sampler(data_dir, n_splits=5, batch_size=32, id_column='p
         val_csv = os.path.join(data_dir, f"fold_{i}_val.csv")
 
         if not os.path.exists(train_csv) or not os.path.exists(val_csv):
-            # 这是一个预期的行为，如果文件不存在，说明需要先运行预处理脚本
-            # 所以我们只打印信息而不是抛出错误，让主程序决定如何处理。
             print(f"提示: Fold {i} 的数据文件不存在, 需要先运行 `scripts/preprocess_clinical.py`。")
-            return None # 返回None表示无法创建加载器
+            return None
 
-        # 【核心修改】在创建Dataset实例时，传入id_column和正确的label_column
         train_dataset = ClinicalDataset(csv_path=train_csv, label_column=label_column, id_column=id_column)
         val_dataset = ClinicalDataset(csv_path=val_csv, label_column=label_column, id_column=id_column)
 
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        # 【核心修复】将 num_workers=0 添加到 DataLoader 中，用于调试
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
         
         kfold_loaders.append((train_loader, val_loader))
         
