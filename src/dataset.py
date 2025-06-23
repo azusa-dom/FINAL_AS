@@ -1,5 +1,3 @@
-# 文件: src/dataset.py
-
 import torch
 import pandas as pd
 from torch.utils.data import Dataset
@@ -8,19 +6,22 @@ import os
 from PIL import Image # Pillow库，用于读取图片。如果未安装，请运行: pip install Pillow
 
 # ==============================================================================
-# --- 您原有的代码 (完全保留，未做任何改动) ---
+# --- ClinicalDataset (已根据修改意见更新) ---
 # ==============================================================================
 
 class ClinicalDataset(Dataset):
     """专门用于加载和处理临床表格数据的Dataset类"""
-    def __init__(self, csv_path, label_column='Disease'):
+    def __init__(self, csv_path, label_column='Disease', id_column='patient_id'):
         """
         Args:
             csv_path (string): CSV文件的路径。
             label_column (string): 标签列的名称。
+            id_column (string): 患者ID列的名称。
         """
         self.df = pd.read_csv(csv_path)
         self.label_column = label_column
+        # 检查ID列是否存在
+        self.id_column = id_column if id_column in self.df.columns else None
         
         # 标签编码逻辑
         self.unique_labels = self.df[self.label_column].astype('category').cat.categories
@@ -28,7 +29,15 @@ class ClinicalDataset(Dataset):
         print(f"INFO: Label mapping for {os.path.basename(csv_path)}: {self.label_to_int}")
         self.labels = self.df[self.label_column].map(self.label_to_int).values
         
-        features_df = self.df.drop(columns=[self.label_column])
+        # 根据是否存在ID列来处理特征和ID
+        if self.id_column:
+            self.patient_ids = self.df[self.id_column].tolist()
+            features_df = self.df.drop(columns=[self.label_column, self.id_column])
+        else:
+            # 如果没有ID列，则用None作为占位符
+            self.patient_ids = [None] * len(self.df)
+            features_df = self.df.drop(columns=[self.label_column])
+            
         self.features = features_df.select_dtypes(include=np.number).values
 
     def __len__(self):
@@ -37,14 +46,17 @@ class ClinicalDataset(Dataset):
     def __getitem__(self, idx):
         features = self.features[idx]
         label = self.labels[idx]
-        
+        # 获取当前样本的patient_id
+        pid = self.patient_ids[idx]
+
         features_tensor = torch.tensor(features, dtype=torch.float32)
         label_tensor = torch.tensor(label, dtype=torch.long)
-        
-        return features_tensor, label_tensor
+
+        # 返回ID作为额外的数据
+        return features_tensor, label_tensor, pid
 
 # ==============================================================================
-# --- 新增的代码 (用于处理MRI影像，不影响上面的代码) ---
+# --- ASFineTuneDataset (您原有的代码，保持不变) ---
 # ==============================================================================
 
 class ASFineTuneDataset(Dataset):
