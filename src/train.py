@@ -1,116 +1,114 @@
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
 import pandas as pd
+from torch.utils.data import Dataset
 import numpy as np
 import os
-import argparse
-from tqdm import tqdm
-from src.models import SimpleResNet, SimpleCNN, SimpleMLP
-from src.utils import get_kfold_strafied_sampler, get_class_weights
+from PIL import Image # Pillow库，用于读取图片。如果未安装，请运行: pip install Pillow
 
-def train(args):
-    """主训练函数"""
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+# ==============================================================================
+# --- ClinicalDataset (已根据修改意见更新) ---
+# ==============================================================================
 
-    # 【修改 1】让数据加载器知道要去处理 patient_id
-    kfold_loader = get_kfold_strafied_sampler(args.data_dir, n_splits=5, id_column='patient_id')
-    
-    preds_output_dir = os.path.join(args.model_dir, 'clinical_preds')
-    os.makedirs(preds_output_dir, exist_ok=True)
-
-    for fold, (train_loader, val_loader) in enumerate(kfold_loader):
-        print(f"\n===== Fold {fold} =====")
-
-        num_classes = len(train_loader.dataset.unique_labels)
-        print(f"INFO: Detected {num_classes} classes for Fold {fold}.")
-
-        # 【修改 2】现在dataloader会返回3个值 (features, labels, pids)，相应地解包
-        sample_features, _, _ = next(iter(train_loader))
-        input_dim = sample_features.shape[1]
-
-        if args.model_name == 'resnet':
-            model = SimpleResNet(input_dim=input_dim, num_classes=num_classes).to(device)
-        elif args.model_name == 'cnn':
-            model = SimpleCNN(num_features=input_dim, num_classes=num_classes).to(device)
+class ClinicalDataset(Dataset):
+    """专门用于加载和处理临床表格数据的Dataset类"""
+    def __init__(self, csv_path, label_column='Disease', id_column='patient_id'):
+        """
+        Args:
+            csv_path (string): CSV文件的路径。
+            label_column (string): 标签列的名称。
+            id_column (string): 患者ID列的名称。
+        """
+        self.df = pd.read_csv(csv_path)
+        self.label_column = label_column
+        # 检查ID列是否存在
+        self.id_column = id_column if id_column in self.df.columns else None
+        
+        # 标签编码逻辑
+        # 检查标签列是否存在，如果不存在则可能是一个没有标签的测试集
+        if self.label_column in self.df.columns:
+            self.unique_labels = self.df[self.label_column].astype('category').cat.categories
+            self.label_to_int = {label: i for i, label in enumerate(self.unique_labels)}
+            print(f"INFO: Label mapping for {os.path.basename(csv_path)}: {self.label_to_int}")
+            self.labels = self.df[self.label_column].map(self.label_to_int).values
         else:
-            model = SimpleMLP(input_dim=input_dim, num_classes=num_classes).to(device)
-        
-        class_weights = get_class_weights(train_loader.dataset).to(device)
-        criterion = nn.CrossEntropyLoss(weight=class_weights)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-        
-        best_val_loss = float('inf')
+            self.labels = [0] * len(self.df) # 如果没有标签列，用0作为占位符
+            print(f"警告: 在文件 {os.path.basename(csv_path)} 中未找到标签列 '{self.label_column}'。")
 
-        for epoch in range(args.epochs):
-            model.train()
-            train_loss = 0.0
-            # 【修改 3】训练循环同样解包3个值，但ID在这里用不到，所以用 _ 忽略
-            for features, labels, _ in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [T]"):
-                features, labels = features.to(device), labels.to(device)
-                optimizer.zero_grad()
-                outputs = model(features)
-                loss = criterion(outputs, labels)
-                loss.backward()
-                optimizer.step()
-                train_loss += loss.item()
 
-            model.eval()
-            val_loss = 0.0
-            fold_true_labels = []
-            fold_pred_logits = []
-            # 【修改 4】创建一个新列表来收集验证集的 patient_id
-            fold_patient_ids = []
+        # 根据是否存在ID列来处理特征和ID
+        if self.id_column and self.id_column in self.df.columns:
+            self.patient_ids = self.df[self.id_column].tolist()
+            # 从特征中移除标签列和ID列
+            features_df = self.df.drop(columns=[col for col in [self.label_column, self.id_column] if col in self.df.columns])
+        else:
+            # 如果没有ID列，则用索引作为占位符
+            self.patient_ids = list(range(len(self.df)))
+            features_df = self.df.drop(columns=[self.label_column], errors='ignore')
             
-            with torch.no_grad():
-                # 【修改 5】验证循环解包3个值，这次我们需要ID
-                for features, labels, ids in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [V]"):
-                    features, labels = features.to(device), labels.to(device)
-                    outputs = model(features)
-                    loss = criterion(outputs, labels)
-                    val_loss += loss.item()
-                    fold_true_labels.append(labels.cpu().numpy())
-                    fold_pred_logits.append(outputs.cpu().numpy())
-                    # 【修改 6】将当前批次的ID收集起来
-                    fold_patient_ids.extend(ids)
+        self.features = features_df.select_dtypes(include=np.number).values
 
-            avg_train_loss = train_loss / len(train_loader)
-            avg_val_loss = val_loss / len(val_loader)
-            print(f"Epoch {epoch+1}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+    def __len__(self):
+        return len(self.df)
 
-            if avg_val_loss < best_val_loss:
-                best_val_loss = avg_val_loss
-                model_save_path = os.path.join(args.model_dir, f"best_model_fold_{fold}.pth")
-                torch.save(model.state_dict(), model_save_path)
-                print(f"Model for fold {fold} saved to {model_save_path}")
+    def __getitem__(self, idx):
+        features = self.features[idx]
+        label = self.labels[idx]
+        # 获取当前样本的patient_id
+        pid = self.patient_ids[idx]
 
-        print(f"Saving predictions for Fold {fold}...")
-        fold_true_labels = np.concatenate(fold_true_labels, axis=0)
-        fold_pred_logits = np.concatenate(fold_pred_logits, axis=0)
+        features_tensor = torch.tensor(features, dtype=torch.float32)
+        label_tensor = torch.tensor(label, dtype=torch.long)
+
+        # 返回ID作为额外的数据
+        return features_tensor, label_tensor, pid
+
+# ==============================================================================
+# --- ASFineTuneDataset (您原有的代码，保持不变) ---
+# ==============================================================================
+
+class ASFineTuneDataset(Dataset):
+    """
+    专门用于混合强直性脊柱炎(AS)和健康影像进行微调的数据集类。
+    它会读取一个包含 '0_Healthy' 和 '1_AS' 子文件夹的根目录。
+    """
+    def __init__(self, root_dir, transform=None):
+        self.root_dir = root_dir
+        self.transform = transform
+        self.samples = []
+
+        class_map = {"0_Healthy": 0, "1_AS": 1}
+
+        if not os.path.isdir(self.root_dir):
+            raise FileNotFoundError(f"指定的根目录不存在: {self.root_dir}")
+
+        for class_name, label in class_map.items():
+            class_path = os.path.join(self.root_dir, class_name)
+            if not os.path.isdir(class_path):
+                print(f"警告: 找不到类别文件夹 {class_path}，将跳过。")
+                continue
+
+            for file_name in sorted(os.listdir(class_path)):
+                if file_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
+                    image_path = os.path.join(class_path, file_name)
+                    self.samples.append((image_path, label))
+
+        if not self.samples:
+            print(f"警告: 在目录 {self.root_dir} 中没有找到任何图片文件。")
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        image_path, label = self.samples[idx]
+        try:
+            image = Image.open(image_path).convert("RGB")
+        except Exception as e:
+            print(f"错误：无法读取图片 {image_path}。错误信息: {e}")
+            return None, None
+
+        if self.transform:
+            image = self.transform(image)
         
-        logit_columns = [f'logit_{i}' for i in range(num_classes)]
-        
-        df_preds = pd.DataFrame(fold_pred_logits, columns=logit_columns)
-        df_preds['true_label'] = fold_true_labels
-        # 【修改 7 - 核心】将收集到的ID添加到DataFrame中
-        df_preds['patient_id'] = fold_patient_ids
-        
-        # 确保 patient_id 是第一列，方便查看
-        df_preds = df_preds[['patient_id'] + [col for col in df_preds.columns if col != 'patient_id']]
+        label = torch.tensor(label, dtype=torch.long)
 
-        preds_save_path = os.path.join(preds_output_dir, f'fold_{fold}_predictions.csv')
-        df_preds.to_csv(preds_save_path, index=False)
-        print(f"✅ Predictions for fold {fold} saved to {preds_save_path}")
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train a simple model on clinical data.")
-    parser.add_argument("--data_dir", type=str, required=True, help="Directory containing the processed fold data.")
-    parser.add_argument("--model_dir", type=str, required=True, help="Directory to save the trained models.")
-    parser.add_argument("--model_name", type=str, choices=['mlp', 'cnn', 'resnet'], default='resnet', help="Model to train.")
-    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs.")
-    args = parser.parse_args()
-
-    os.makedirs(args.model_dir, exist_ok=True)
-    
-    train(args)
+        return image, label
