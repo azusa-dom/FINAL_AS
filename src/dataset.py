@@ -3,40 +3,30 @@ import pandas as pd
 from torch.utils.data import Dataset
 import numpy as np
 import os
-from PIL import Image # Pillow库，用于读取图片。如果未安装，请运行: pip install Pillow
-
-# ==============================================================================
-# --- ClinicalDataset (已根据修改意见更新) ---
-# ==============================================================================
+from PIL import Image
 
 class ClinicalDataset(Dataset):
     """专门用于加载和处理临床表格数据的Dataset类"""
     def __init__(self, csv_path, label_column='Disease', id_column='patient_id'):
-        """
-        Args:
-            csv_path (string): CSV文件的路径。
-            label_column (string): 标签列的名称。
-            id_column (string): 患者ID列的名称。
-        """
         self.df = pd.read_csv(csv_path)
         self.label_column = label_column
-        # 检查ID列是否存在
         self.id_column = id_column if id_column in self.df.columns else None
         
-        # 标签编码逻辑
-        self.unique_labels = self.df[self.label_column].astype('category').cat.categories
-        self.label_to_int = {label: i for i, label in enumerate(self.unique_labels)}
-        print(f"INFO: Label mapping for {os.path.basename(csv_path)}: {self.label_to_int}")
-        self.labels = self.df[self.label_column].map(self.label_to_int).values
-        
-        # 根据是否存在ID列来处理特征和ID
-        if self.id_column:
-            self.patient_ids = self.df[self.id_column].tolist()
-            features_df = self.df.drop(columns=[self.label_column, self.id_column])
+        if self.label_column in self.df.columns:
+            self.unique_labels = self.df[self.label_column].astype('category').cat.categories
+            self.label_to_int = {label: i for i, label in enumerate(self.unique_labels)}
+            print(f"INFO: Label mapping for {os.path.basename(csv_path)}: {self.label_to_int}")
+            self.labels = self.df[self.label_column].map(self.label_to_int).values
         else:
-            # 如果没有ID列，则用None作为占位符
-            self.patient_ids = [None] * len(self.df)
-            features_df = self.df.drop(columns=[self.label_column])
+            self.labels = np.zeros(len(self.df), dtype=int)
+            print(f"警告: 在文件 {os.path.basename(csv_path)} 中未找到标签列 '{self.label_column}'。")
+
+        if self.id_column and self.id_column in self.df.columns:
+            self.patient_ids = self.df[self.id_column].values
+            features_df = self.df.drop(columns=[col for col in [self.label_column, self.id_column] if col in self.df.columns])
+        else:
+            self.patient_ids = np.arange(len(self.df))
+            features_df = self.df.drop(columns=[self.label_column], errors='ignore')
             
         self.features = features_df.select_dtypes(include=np.number).values
 
@@ -44,45 +34,35 @@ class ClinicalDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx):
+        # 这一部分和之前一样
         features = self.features[idx]
         label = self.labels[idx]
-        # 获取当前样本的patient_id
         pid = self.patient_ids[idx]
 
         features_tensor = torch.tensor(features, dtype=torch.float32)
         label_tensor = torch.tensor(label, dtype=torch.long)
 
-        # 返回ID作为额外的数据
+        # 【终极调试代码】在返回前，强制检查所有元素的有效性
+        if torch.isnan(features_tensor).any():
+            raise ValueError(f"错误! 在索引 {idx} (patient_id: {pid}) 处，特征数据(features)中包含NaN!")
+        
+        if pid is None:
+             raise ValueError(f"错误! 在索引 {idx} 处，patient_id 为 None!")
+
         return features_tensor, label_tensor, pid
 
-# ==============================================================================
-# --- ASFineTuneDataset (您原有的代码，保持不变) ---
-# ==============================================================================
-
+# --- ASFineTuneDataset (保持不变) ---
 class ASFineTuneDataset(Dataset):
-    """
-    专门用于混合强直性脊柱炎(AS)和健康影像进行微调的数据集类。
-    它会读取一个包含 '0_Healthy' 和 '1_AS' 子文件夹的根目录。
-    """
     def __init__(self, root_dir, transform=None):
-        """
-        初始化函数，用于扫描文件目录并创建样本列表。
-
-        Args:
-            root_dir (string): 数据集的主目录路径 (例如: 'path/to/AS_Finetune_Data/')。
-            transform (callable, optional): 应用于每个样本的可选变换。
-        """
         self.root_dir = root_dir
         self.transform = transform
-        self.samples = []  # 初始化一个空列表，用来存放 (图片路径, 标签) 的元组
+        self.samples = []
 
-        # 定义类别名称和它们对应的整数标签
         class_map = {"0_Healthy": 0, "1_AS": 1}
 
         if not os.path.isdir(self.root_dir):
             raise FileNotFoundError(f"指定的根目录不存在: {self.root_dir}")
 
-        # 遍历根目录下的每个类别文件夹
         for class_name, label in class_map.items():
             class_path = os.path.join(self.root_dir, class_name)
             if not os.path.isdir(class_path):
@@ -112,5 +92,4 @@ class ASFineTuneDataset(Dataset):
             image = self.transform(image)
         
         label = torch.tensor(label, dtype=torch.long)
-
         return image, label
