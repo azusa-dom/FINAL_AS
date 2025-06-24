@@ -45,6 +45,12 @@ def train(args):
         
         best_val_loss = float('inf')
 
+        # 这几个列表现在在 epoch 循环外初始化，我们只关心最后一个epoch的预测结果
+        # 或者，更好的做法是只在最后一个epoch进行预测和保存，但为了最小化改动，我们维持当前逻辑
+        fold_true_labels = []
+        fold_pred_logits = []
+        fold_patient_ids = []
+
         for epoch in range(args.epochs):
             model.train()
             train_loss = 0.0
@@ -59,9 +65,11 @@ def train(args):
 
             model.eval()
             val_loss = 0.0
-            fold_true_labels = []
-            fold_pred_logits = []
-            fold_patient_ids = []
+            
+            # 在每个epoch开始验证前，清空列表，以保证只存储最后一个epoch的结果
+            epoch_true_labels = []
+            epoch_pred_logits = []
+            epoch_patient_ids = []
             
             with torch.no_grad():
                 for features, labels, ids in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [V]"):
@@ -69,14 +77,21 @@ def train(args):
                     outputs = model(features)
                     loss = criterion(outputs, labels)
                     val_loss += loss.item()
-                    fold_true_labels.extend(labels.cpu().numpy())
-                    fold_pred_logits.extend(outputs.cpu().numpy())
-                    fold_patient_ids.extend(ids if isinstance(ids, list) else [ids])
-
+                    
+                    # 【核心修复】使用 append 保存每个批次的结果
+                    epoch_true_labels.append(labels.cpu().numpy())
+                    epoch_pred_logits.append(outputs.cpu().numpy())
+                    # `ids` 是一个元组，我们也整个 append 进去
+                    epoch_patient_ids.append(ids)
 
             avg_train_loss = train_loss / len(train_loader)
             avg_val_loss = val_loss / len(val_loader)
             print(f"Epoch {epoch+1}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+
+            # 在每个 epoch 结束后，用当前 epoch 的预测结果更新最终要保存的列表
+            fold_true_labels = epoch_true_labels
+            fold_pred_logits = epoch_pred_logits
+            fold_patient_ids = epoch_patient_ids
 
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
@@ -86,11 +101,16 @@ def train(args):
 
         print(f"Saving predictions for Fold {fold}...")
         
+        # 【核心修复】使用 np.concatenate 将批次的列表“展开”成一个长列表
+        final_true_labels = np.concatenate(fold_true_labels, axis=0)
+        final_pred_logits = np.concatenate(fold_pred_logits, axis=0)
+        final_patient_ids = np.concatenate(fold_patient_ids, axis=0)
+
         logit_columns = [f'logit_{i}' for i in range(num_classes)]
         
-        df_preds = pd.DataFrame(fold_pred_logits, columns=logit_columns)
-        df_preds['true_label'] = fold_true_labels
-        df_preds['patient_id'] = fold_patient_ids
+        df_preds = pd.DataFrame(final_pred_logits, columns=logit_columns)
+        df_preds['true_label'] = final_true_labels
+        df_preds['patient_id'] = final_patient_ids
         
         df_preds = df_preds[['patient_id'] + [col for col in df_preds.columns if col != 'patient_id']]
 
