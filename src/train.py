@@ -1,59 +1,113 @@
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
 import pandas as pd
-from pathlib import Path
-import argparse
+import numpy as np
 import os
+import argparse
+from tqdm import tqdm
+from src.models import SimpleResNet, SimpleCNN, SimpleMLP
+from src.utils import get_kfold_strafied_sampler, get_class_weights
 
-def check_data_quality(data_dir_str: str):
-    """
-    主检查函数：遍历所有处理后的CSV文件，检查是否存在NaN值。
-    """
-    print("--- 开始全面检查所有已处理的数据文件 ---")
+def train(args):
+    """主训练函数"""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    kfold_loader = get_kfold_strafied_sampler(args.data_dir, n_splits=5, id_column='patient_id', label_column=args.label_column)
     
-    data_dir = Path(data_dir_str)
-
-    if not data_dir.exists():
-        print(f"❌ 错误: 找不到目录 '{data_dir}'。")
-        print("请确保您已经成功运行了 `scripts/preprocess_clinical.py` 脚本。")
+    if kfold_loader is None:
+        print("无法创建数据加载器，请确保预处理步骤已正确运行。")
         return
 
-    # 查找所有处理过的 fold CSV 文件
-    csv_files = sorted(list(data_dir.glob("fold_*_*.csv")))
+    preds_output_dir = os.path.join(args.model_dir, 'clinical_preds')
+    os.makedirs(preds_output_dir, exist_ok=True)
 
-    if not csv_files:
-        print(f"⚠️ 警告: 在 {data_dir} 中没有找到任何 'fold_*_*.csv' 文件。")
-        return
+    for fold, (train_loader, val_loader) in enumerate(kfold_loader):
+        print(f"\n===== Fold {fold} =====")
 
-    found_issue = False
-    for file_path in csv_files:
-        print(f"🔍 正在检查文件: {file_path.name}")
-        try:
-            df = pd.read_csv(file_path)
+        num_classes = len(train_loader.dataset.unique_labels)
+        print(f"INFO: Detected {num_classes} classes for Fold {fold}.")
+        
+        sample_features, _, _ = next(iter(train_loader))
+        input_dim = sample_features.shape[1]
+
+        if args.model_name == 'resnet':
+            model = SimpleResNet(input_dim=input_dim, num_classes=num_classes).to(device)
+        elif args.model_name == 'cnn':
+            model = SimpleCNN(num_features=input_dim, num_classes=num_classes).to(device)
+        else:
+            model = SimpleMLP(input_dim=input_dim, num_classes=num_classes).to(device)
+        
+        class_weights = get_class_weights(train_loader.dataset).to(device)
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+        
+        best_val_loss = float('inf')
+
+        for epoch in range(args.epochs):
+            model.train()
+            train_loss = 0.0
+            for features, labels, _ in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [T]"):
+                features, labels = features.to(device), labels.to(device)
+                optimizer.zero_grad()
+                outputs = model(features)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
+
+            model.eval()
+            val_loss = 0.0
+            fold_true_labels = []
+            fold_pred_logits = []
+            fold_patient_ids = []
             
-            # 检查整个DataFrame是否有任何NaN值
-            if df.isnull().values.any():
-                print(f"  ‼️‼️‼️ 警告: 文件 '{file_path.name}' 中发现 NaN (缺失) 值! ‼️‼️‼️")
-                # 打印出具体是哪些列有多少个NaN值
-                nan_info = df.isnull().sum()
-                print("  缺失值统计:")
-                print(nan_info[nan_info > 0])
-                print("-" * 20)
-                found_issue = True
+            with torch.no_grad():
+                for features, labels, ids in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [V]"):
+                    features, labels = features.to(device), labels.to(device)
+                    outputs = model(features)
+                    loss = criterion(outputs, labels)
+                    val_loss += loss.item()
+                    fold_true_labels.extend(labels.cpu().numpy())
+                    fold_pred_logits.extend(outputs.cpu().numpy())
+                    fold_patient_ids.extend(ids if isinstance(ids, list) else [ids])
 
-        except Exception as e:
-            print(f"  ❌ 读取或检查文件 '{file_path.name}' 时出错: {e}")
-            found_issue = True
-            
-    if not found_issue:
-        print("\n--- ✅ 所有文件检查完毕，没有发现明显的 NaN 问题。---")
-    else:
-        print("\n--- ❗ 检查发现问题，请查看上面的警告信息。问题可能源于 `preprocess_clinical.py` 的填充逻辑未能处理某些特殊情况。---")
 
+            avg_train_loss = train_loss / len(train_loader)
+            avg_val_loss = val_loss / len(val_loader)
+            print(f"Epoch {epoch+1}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                model_save_path = os.path.join(args.model_dir, f"best_model_fold_{fold}.pth")
+                torch.save(model.state_dict(), model_save_path)
+                print(f"Model for fold {fold} saved to {model_save_path}")
+
+        print(f"Saving predictions for Fold {fold}...")
+        
+        logit_columns = [f'logit_{i}' for i in range(num_classes)]
+        
+        df_preds = pd.DataFrame(fold_pred_logits, columns=logit_columns)
+        df_preds['true_label'] = fold_true_labels
+        df_preds['patient_id'] = fold_patient_ids
+        
+        df_preds = df_preds[['patient_id'] + [col for col in df_preds.columns if col != 'patient_id']]
+
+        preds_save_path = os.path.join(preds_output_dir, f'fold_{fold}_predictions.csv')
+        df_preds.to_csv(preds_save_path, index=False)
+        print(f"✅ Predictions for fold {fold} saved to {preds_save_path}")
 
 if __name__ == "__main__":
-    # 我们只保留这个脚本需要用到的参数
-    parser = argparse.ArgumentParser(description="临时数据质量检查脚本")
-    parser.add_argument("--data_dir", type=str, required=True, help="存放已处理好的、分折后的数据的目录。")
+    parser = argparse.ArgumentParser(description="Train a simple model on clinical data.")
+    parser.add_argument("--data_dir", type=str, required=True, help="Directory containing the processed fold data.")
+    parser.add_argument("--model_dir", type=str, required=True, help="Directory to save the trained models.")
+    parser.add_argument("--model_name", type=str, choices=['mlp', 'cnn', 'resnet'], default='resnet', help="Model to train.")
+    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs.")
+    parser.add_argument("--label_column", type=str, default="Disease", help="CSV文件中标签列的名称。")
     
     args = parser.parse_args()
+
+    os.makedirs(args.model_dir, exist_ok=True)
     
-    check_data_quality(args.data_dir)
+    train(args)
