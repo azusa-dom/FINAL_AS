@@ -1,6 +1,12 @@
 import pandas as pd
 
-def clean_and_label_as(csv_path, out_path="cleaned_clinical_with_as.csv", only_positive=False, sample_size=None):
+
+def clean_and_label_as(
+    csv_path,
+    out_path="cleaned_clinical_with_as.csv",
+    only_positive=False,
+    sample_size=None,
+):
     """
     加载临床数据，清洗缺失值和异常值，并构造伪标签 `pseudo_AS`
     可以选取样本子集保存
@@ -44,11 +50,12 @@ def clean_and_label_as(csv_path, out_path="cleaned_clinical_with_as.csv", only_p
         pos = df[df["pseudo_AS"] == 1]
         neg = df[df["pseudo_AS"] == 0]
         per_class = sample_size // 2
-        df = pd.concat([
-            pos.sample(n=min(len(pos), per_class), random_state=42),
-            neg.sample(n=min(len(neg), per_class), random_state=42)
-        ])
-
+        df = pd.concat(
+            [
+                pos.sample(n=min(len(pos), per_class), random_state=42),
+                neg.sample(n=min(len(neg), per_class), random_state=42),
+            ]
+        )
 
     # 保存清洗后的文件
     selected_cols = numeric_cols + binary_cols + ["pseudo_AS"]
@@ -56,17 +63,27 @@ def clean_and_label_as(csv_path, out_path="cleaned_clinical_with_as.csv", only_p
     print(f"✅ 临床数据已清洗并保存: {out_path}")
     print(f"样本分布:\n{df['pseudo_AS'].value_counts()}")
 
+
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="清洗临床指标并生成 pseudo_AS 标签")
-    parser.add_argument("--csv", type=str, required=True,
-                        help="原始临床Excel路径")
-    parser.add_argument("--out", type=str, default="cleaned_clinical_with_as.csv",
-                        help="输出清洗后的CSV文件名")
-    parser.add_argument("--only_positive", action="store_true",
-                        help="是否仅保留伪AS样本")
-    parser.add_argument("--sample_size", type=int, default=None,
-                        help="最多保留的样本数（用于控制临床数据大小）")
+    parser.add_argument("--csv", type=str, required=True, help="原始临床Excel路径")
+    parser.add_argument(
+        "--out",
+        type=str,
+        default="cleaned_clinical_with_as.csv",
+        help="输出清洗后的CSV文件名",
+    )
+    parser.add_argument(
+        "--only_positive", action="store_true", help="是否仅保留伪AS样本"
+    )
+    parser.add_argument(
+        "--sample_size",
+        type=int,
+        default=None,
+        help="最多保留的样本数（用于控制临床数据大小）",
+    )
 
     args = parser.parse_args()
     clean_and_label_as(args.csv, args.out, args.only_positive, args.sample_size)

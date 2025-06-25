@@ -16,6 +16,7 @@ import pandas as pd
 import argparse
 from pathlib import Path
 
+
 def add_ids_to_predictions(preds_dir: str, splits_dir: str):
     """
     主函数，执行添加ID并保存的逻辑。
@@ -39,17 +40,17 @@ def add_ids_to_predictions(preds_dir: str, splits_dir: str):
     for pred_file in pred_files:
         try:
             # 从文件名中提取 fold 编号
-            fold_num_str = pred_file.stem.split('_')[1]
-            
+            fold_num_str = pred_file.stem.split("_")[1]
+
             # 构建对应的split文件路径
             split_file = splits_path / f"fold_{fold_num_str}.txt"
-            
+
             if not split_file.exists():
                 print(f"❌ 错误: 找不到对应的 split 文件: {split_file}")
                 continue
 
             # 1. 读取患者ID
-            with open(split_file, 'r') as f:
+            with open(split_file, "r") as f:
                 patient_ids = [line.strip() for line in f.readlines()]
 
             # 2. 读取预测CSV
@@ -57,41 +58,42 @@ def add_ids_to_predictions(preds_dir: str, splits_dir: str):
 
             # 3. 安全检查：行数是否一致
             if len(patient_ids) != len(df_preds):
-                print(f"❌ 错误: 行数不匹配! Split文件 '{split_file.name}' 有 {len(patient_ids)} 个ID, "
-                      f"但预测文件 '{pred_file.name}' 有 {len(df_preds)} 行。")
+                print(
+                    f"❌ 错误: 行数不匹配! Split文件 '{split_file.name}' 有 {len(patient_ids)} 个ID, "
+                    f"但预测文件 '{pred_file.name}' 有 {len(df_preds)} 行。"
+                )
                 continue
-            
+
             # 4. 添加 'patient_id' 列
             # 我们把ID放在第一列，这样更容易查看
-            df_preds.insert(0, 'patient_id', patient_ids)
+            df_preds.insert(0, "patient_id", patient_ids)
 
             # 5. 覆盖保存
             df_preds.to_csv(pred_file, index=False)
 
-            print(f"  ✅ 成功为 '{pred_file.name}' 添加了 {len(patient_ids)} 个 patient_id。")
+            print(
+                f"  ✅ 成功为 '{pred_file.name}' 添加了 {len(patient_ids)} 个 patient_id。"
+            )
 
         except Exception as e:
             print(f"❌ 处理文件 '{pred_file.name}' 时发生意外错误: {e}")
-    
+
     print("--- 处理完成 ---")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="为一个目录下的所有 k-fold 预测CSV文件添加 patient_id。",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        '--preds-dir',
+        "--preds-dir",
         type=str,
         required=True,
-        help="存放 'fold_k_predictions.csv' 文件的目录。"
+        help="存放 'fold_k_predictions.csv' 文件的目录。",
     )
     parser.add_argument(
-        '--splits-dir',
-        type=str,
-        required=True,
-        help="存放 'fold_k.txt' 文件的目录。"
+        "--splits-dir", type=str, required=True, help="存放 'fold_k.txt' 文件的目录。"
     )
 
     args = parser.parse_args()

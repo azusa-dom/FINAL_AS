@@ -9,10 +9,11 @@
 import pandas as pd
 from pathlib import Path
 
+
 def check_data_quality():
     """主检查函数"""
     print("--- 开始全面检查所有已处理的数据文件 ---")
-    
+
     data_dir = Path("data/processed_clinical_data")
 
     if not data_dir.exists():
@@ -32,7 +33,7 @@ def check_data_quality():
         print(f"🔍 正在检查文件: {file_path.name}")
         try:
             df = pd.read_csv(file_path)
-            
+
             # 检查整个DataFrame是否有任何NaN值
             if df.isnull().values.any():
                 print(f"  ‼️‼️‼️ 警告: 文件 '{file_path.name}' 中发现 NaN (缺失) 值! ‼️‼️‼️")
@@ -46,11 +47,14 @@ def check_data_quality():
         except Exception as e:
             print(f"  ❌ 读取或检查文件 '{file_path.name}' 时出错: {e}")
             found_issue = True
-            
+
     if not found_issue:
         print("\n--- ✅ 所有文件检查完毕，没有发现明显的 NaN 问题。---")
     else:
-        print("\n--- ❗ 检查发现问题，请查看上面的警告信息。问题可能源于  的填充逻辑未能处理某些特殊情况。---")
+        print(
+            "\n--- ❗ 检查发现问题，请查看上面的警告信息。问题可能源于  的填充逻辑未能处理某些特殊情况。---"
+        )
+
 
 if __name__ == "__main__":
     check_data_quality()

@@ -5,29 +5,43 @@ import numpy as np
 import os
 from PIL import Image
 
+
 class ClinicalDataset(Dataset):
     """专门用于加载和处理临床表格数据的Dataset类"""
-    def __init__(self, csv_path, label_column='Disease', id_column='patient_id'):
+
+    def __init__(self, csv_path, label_column="Disease", id_column="patient_id"):
         self.df = pd.read_csv(csv_path)
         self.label_column = label_column
         self.id_column = id_column if id_column in self.df.columns else None
-        
+
         if self.label_column in self.df.columns:
-            self.unique_labels = self.df[self.label_column].astype('category').cat.categories
+            self.unique_labels = (
+                self.df[self.label_column].astype("category").cat.categories
+            )
             self.label_to_int = {label: i for i, label in enumerate(self.unique_labels)}
-            print(f"INFO: Label mapping for {os.path.basename(csv_path)}: {self.label_to_int}")
+            print(
+                f"INFO: Label mapping for {os.path.basename(csv_path)}: {self.label_to_int}"
+            )
             self.labels = self.df[self.label_column].map(self.label_to_int).values
         else:
             self.labels = np.zeros(len(self.df), dtype=int)
-            print(f"警告: 在文件 {os.path.basename(csv_path)} 中未找到标签列 '{self.label_column}'。")
+            print(
+                f"警告: 在文件 {os.path.basename(csv_path)} 中未找到标签列 '{self.label_column}'。"
+            )
 
         if self.id_column and self.id_column in self.df.columns:
             self.patient_ids = self.df[self.id_column].values
-            features_df = self.df.drop(columns=[col for col in [self.label_column, self.id_column] if col in self.df.columns])
+            features_df = self.df.drop(
+                columns=[
+                    col
+                    for col in [self.label_column, self.id_column]
+                    if col in self.df.columns
+                ]
+            )
         else:
             self.patient_ids = np.arange(len(self.df))
-            features_df = self.df.drop(columns=[self.label_column], errors='ignore')
-            
+            features_df = self.df.drop(columns=[self.label_column], errors="ignore")
+
         self.features = features_df.select_dtypes(include=np.number).values
 
     def __len__(self):
@@ -44,12 +58,15 @@ class ClinicalDataset(Dataset):
 
         # 【终极调试代码】在返回前，强制检查所有元素的有效性
         if torch.isnan(features_tensor).any():
-            raise ValueError(f"错误! 在索引 {idx} (patient_id: {pid}) 处，特征数据(features)中包含NaN!")
-        
+            raise ValueError(
+                f"错误! 在索引 {idx} (patient_id: {pid}) 处，特征数据(features)中包含NaN!"
+            )
+
         if pid is None:
-             raise ValueError(f"错误! 在索引 {idx} 处，patient_id 为 None!")
+            raise ValueError(f"错误! 在索引 {idx} 处，patient_id 为 None!")
 
         return features_tensor, label_tensor, pid
+
 
 # --- ASFineTuneDataset (保持不变) ---
 class ASFineTuneDataset(Dataset):
@@ -70,7 +87,9 @@ class ASFineTuneDataset(Dataset):
                 continue
 
             for file_name in sorted(os.listdir(class_path)):
-                if file_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
+                if file_name.lower().endswith(
+                    (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+                ):
                     image_path = os.path.join(class_path, file_name)
                     self.samples.append((image_path, label))
 
@@ -90,6 +109,6 @@ class ASFineTuneDataset(Dataset):
 
         if self.transform:
             image = self.transform(image)
-        
+
         label = torch.tensor(label, dtype=torch.long)
         return image, label

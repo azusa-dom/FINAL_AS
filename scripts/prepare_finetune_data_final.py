@@ -10,8 +10,10 @@ from PIL import Image
 from pathlib import Path
 from tqdm import tqdm
 
+
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
+
 
 def process_and_save_slices(image_3d, output_folder, base_filename, axis=2):
     """
@@ -37,6 +39,7 @@ def process_and_save_slices(image_3d, output_folder, base_filename, axis=2):
         img = Image.fromarray(u8).convert("RGB")
         fname = f"{base_filename}_slice_{i:03d}.png"
         img.save(os.path.join(output_folder, fname))
+
 
 def raw_to_png(raw_path: Path, output_folder: str):
     """
@@ -69,27 +72,31 @@ def raw_to_png(raw_path: Path, output_folder: str):
     img.save(os.path.join(output_folder, out_name))
     print(f"    ↳ Saved RAW→PNG: {out_name}")
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Prepare AS MRI finetune data.")
-    parser.add_argument('--healthy_dir', required=True, help="Healthy NIfTI source dir")
-    parser.add_argument('--knee_dir', required=True, help="Knee joint raw dir")
-    parser.add_argument('--sacro_dir', required=True, help="Sacroiliac joint raw dir")
-    parser.add_argument('--out_dir', default="AS_Finetune_Data", help="Output directory")
+    parser.add_argument("--healthy_dir", required=True, help="Healthy NIfTI source dir")
+    parser.add_argument("--knee_dir", required=True, help="Knee joint raw dir")
+    parser.add_argument("--sacro_dir", required=True, help="Sacroiliac joint raw dir")
+    parser.add_argument(
+        "--out_dir", default="AS_Finetune_Data", help="Output directory"
+    )
     return parser.parse_args()
+
 
 def main():
     args = parse_args()
     healthy_source_dir = args.healthy_dir
-    knee_post_dir      = args.knee_dir
-    sacro_dir          = args.sacro_dir
-    output_dir         = args.out_dir
+    knee_post_dir = args.knee_dir
+    sacro_dir = args.sacro_dir
+    output_dir = args.out_dir
 
-    healthy_out = os.path.join(output_dir, '0_Healthy')
-    as_out      = os.path.join(output_dir, '1_AS')
+    healthy_out = os.path.join(output_dir, "0_Healthy")
+    as_out = os.path.join(output_dir, "1_AS")
     ensure_dir(healthy_out)
     ensure_dir(as_out)
 
-    print("▶ 开始准备影像数据切片…\n")
+    print("▶ 开始准备影像数据切片...\n")
 
     # 1) 健康组：NIfTI → PNG
     print(f"处理健康组 NIfTI 目录：{healthy_source_dir}")
@@ -100,7 +107,7 @@ def main():
                 continue
             for root, _, files in os.walk(subdir):
                 for f in files:
-                    if f.endswith(('.nii', '.nii.gz')):
+                    if f.endswith((".nii", ".nii.gz")):
                         path = os.path.join(root, f)
                         print(f"  - {sub}: {path}")
                         try:
@@ -120,8 +127,8 @@ def main():
     if os.path.isdir(knee_post_dir):
         print(f"  • 膝关节 Postcontrast 目录: {knee_post_dir}")
         for f in sorted(os.listdir(knee_post_dir)):
-            if f.lower().endswith('.raw'):
-                raw_to_png(Path(knee_post_dir)/f, as_out)
+            if f.lower().endswith(".raw"):
+                raw_to_png(Path(knee_post_dir) / f, as_out)
     else:
         print("⚠️ 膝关节 Postcontrast 路径不存在！")
 
@@ -129,8 +136,8 @@ def main():
     if os.path.isdir(sacro_dir):
         print(f"  • 骶髂关节目录: {sacro_dir}")
         for f in sorted(os.listdir(sacro_dir)):
-            if f.lower().endswith('.raw'):
-                raw_to_png(Path(sacro_dir)/f, as_out)
+            if f.lower().endswith(".raw"):
+                raw_to_png(Path(sacro_dir) / f, as_out)
     else:
         print("⚠️ 骶髂关节路径不存在！")
 
@@ -140,5 +147,6 @@ def main():
     print(f"  AS      PNG 数量: {len(os.listdir(as_out))}")
     print(f"\n请确认 `{output_dir}` 下已有正确的二分类目录结构。")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
