@@ -1,63 +1,40 @@
 #!/bin/bash
-set -e
+# This script automates the entire experimental workflow for the Dual-Engine AS Diagnosis Framework.
+# It ensures that all steps are executed in the correct order, from data preparation to model training and evaluation.
 
-# 定义路径（可根据需要调整）
-DATA_ROOT=data
-NIFTI_DIR=${DATA_ROOT}/nifti
-BIAS_DIR=${DATA_ROOT}/bias_corrected
-ROI_DIR=${DATA_ROOT}/roi
-AUG_DIR=${DATA_ROOT}/augmented
-CLINICAL_CSV=clinical_data/subjects.csv
-CLEANED_CSV=${DATA_ROOT}/cleaned_clinical.csv
-CKPT_DIR=checkpoints
-RESULT_DIR=results
+set -e # Exit immediately if a command exits with a non-zero status.
 
-echo "=========================="
-echo "1. DICOM → NIfTI 转换"
-echo "=========================="
-python scripts/dicom_to_nifti.py ${DATA_ROOT}/dicom ${NIFTI_DIR}
+# --- Configuration ---
+DATA_DIR="data"
+PROCESSED_DIR="${DATA_DIR}/processed_clinical_data"
+MODEL_DIR="models/clinical_model"
+RESULT_DIR="results"
 
-echo "=========================="
-echo "2. Bias Field N4 校正"
-echo "=========================="
-python scripts/bias_correction.py ${NIFTI_DIR} ${BIAS_DIR}
+# --- Workflow ---
 
-echo "=========================="
-echo "3. 提取 ROI 区域"
-echo "=========================="
-python scripts/extract_roi.py ${BIAS_DIR} ${ROI_DIR}
+echo "================================================="
+echo "=== STAGE 1: Preprocessing Clinical Data      ==="
+echo "================================================="
+python scripts/preprocess_clinical.py --input "${DATA_DIR}/rheumatic_autoimmune_disease.csv" --out_dir "${PROCESSED_DIR}"
 
-echo "=========================="
-echo "4. MRI 数据增强"
-echo "=========================="
-python scripts/augment_nifti.py ${ROI_DIR} ${AUG_DIR}
+echo "================================================="
+echo "=== STAGE 2: Training Clinical Model          ==="
+echo "================================================="
+python src/train.py --data_dir "${PROCESSED_DIR}" --model_dir "${MODEL_DIR}"
 
-echo "=========================="
-echo "5. 临床数据预处理"
-echo "=========================="
-python scripts/preprocess_clinical.py ${CLINICAL_CSV} ${CLEANED_CSV}
+echo "================================================="
+echo "=== STAGE 3: Exploring MRI Features           ==="
+echo "================================================="
+# Note: The --data_dir for this script points to the small sample of MRI images.
+python src/explore_mri_features.py --data_dir "AS_Finetune_Data_balanced" --out_dir "${RESULT_DIR}/mri_features"
 
-echo "=========================="
-echo "6. 训练 Early-Fusion Transformer"
-echo "=========================="
-python src/train.py --model early_fusion \
-    --csv ${CLEANED_CSV} --img_dir ${AUG_DIR} --save_dir ${CKPT_DIR}/early
+echo "================================================="
+echo "=== STAGE 4: Evaluating Clinical Predictions  ==="
+echo "================================================="
+# Note: This evaluates the predictions generated during the training stage.
+python src/evaluate.py --preds_dir "${MODEL_DIR}/clinical_preds"
 
-echo "=========================="
-echo "7. 提取 Late-Fusion 特征 + 训练 XGBoost"
-echo "=========================="
-python src/train_late_fusion.py \
-    --csv ${CLEANED_CSV} --img_dir ${AUG_DIR} --save_dir ${CKPT_DIR}/late
-
-echo "=========================="
-echo "8. 模型评估 + 可视化（SHAP / DCA）"
-echo "=========================="
-python src/evaluate.py --model early_fusion \
-    --ckpt ${CKPT_DIR}/early/fold0.pt \
-    --csv ${CLEANED_CSV} --img_dir ${AUG_DIR} --out_dir ${RESULT_DIR}/early
-
-python scripts/plot_shap_dca.py \
-    --csv ${CLEANED_CSV} \
-    --save_dir ${RESULT_DIR}/early
-
-echo "🎉 全部流程完成！结果已保存至 ${RESULT_DIR}"
+echo "================================================="
+echo "=== Workflow finished successfully.           ==="
+echo "=== Check the '${RESULT_DIR}' and '${MODEL_DIR}' directories. ==="
+echo "================================================="
