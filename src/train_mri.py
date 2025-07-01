@@ -1,87 +1,178 @@
-import argparse
-import pandas as pd
-import torch
-import torchvision.transforms as transforms
-from PIL import Image
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
-import numpy as np
+# src/train_mri.py
+
 import os
+import argparse
 
-from src.models import get_feature_extractor
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
+from models_mri import get_mri_model
+from dataset import MRIImageFolderDataset
 
-def load_image(img_path):
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406],
-                             [0.229, 0.224, 0.225]),
-    ])
-    image = Image.open(img_path).convert("RGB")
-    return transform(image)
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="Two-stage fine-tuning for MRI classification"
+    )
+    p.add_argument("--train-dir",    type=str, required=True,
+                   help="训练集根目录 (含 0_Healthy/ 1_AS/)")
+    p.add_argument("--val-dir",      type=str, required=True,
+                   help="验证集根目录")
+    p.add_argument("--model-dir",    type=str, default="../checkpoints",
+                   help="保存最佳模型的目录")
+    p.add_argument("--epochs",       type=int,   default=30,
+                   help="总训练轮数")
+    p.add_argument("--batch-size",   type=int,   default=8,
+                   help="Batch size")
+    p.add_argument("--freeze-epochs",type=int,   default=3,
+                   help="只训练 head 的轮数，之后自动解冻 backbone")
+    p.add_argument("--lr-head",      type=float, default=1e-4,
+                   help="head 的学习率")
+    p.add_argument("--lr-backbone",  type=float, default=1e-5,
+                   help="backbone 的学习率 (微调阶段)")
+    p.add_argument("--weight-decay", type=float, default=1e-5,
+                   help="Adam 权重衰减")
+    p.add_argument("--patience",     type=int,   default=5,
+                   help="早停耐心轮数")
+    p.add_argument("--pretrained",   action="store_true",
+                   help="加载 ImageNet 预训练权重")
+    return p.parse_args()
 
+def build_optimizer(model, lr_head, lr_backbone, weight_decay, freeze_backbone):
+    """
+    根据是否冻结 backbone 来构建 optimizer。
+    freeze_backbone=True 只训练 head，使用 lr_head；
+    否则为 head/backbone 分配不同的 lr。
+    """
+    if freeze_backbone:
+        # 只优化最后的 fc 层
+        params = model.fc.parameters()
+        return optim.Adam(params, lr=lr_head, weight_decay=weight_decay)
+    else:
+        # head 和 backbone 分组优化
+        head_params = list(model.fc.parameters())
+        backbone_params = [
+            p for n, p in model.named_parameters()
+            if "fc" not in n and p.requires_grad
+        ]
+        return optim.Adam([
+            {"params": backbone_params, "lr": lr_backbone},
+            {"params": head_params,      "lr": lr_head}
+        ], weight_decay=weight_decay)
 
-def extract_features(df, image_root, feature_extractor, device):
-    features = []
-    labels = []
-    ids = []
+def main():
+    args = parse_args()
+    os.makedirs(args.model_dir, exist_ok=True)
 
-    for _, row in df.iterrows():
-        patient_id = str(row["patient_id"]).zfill(3)  # 保证 '001' 这种格式
-        label = row["label"]
-        img_path = os.path.join(image_root, f"{patient_id}.png")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"🖥️  Using device: {device}")
 
-        if not os.path.exists(img_path):
-            print(f"⚠️ 跳过缺失图像: {img_path}")
-            continue
+    # Dataset & DataLoader
+    train_ds = MRIImageFolderDataset(args.train_dir, train=True)
+    val_ds   = MRIImageFolderDataset(args.val_dir,   train=False)
+    train_loader = DataLoader(
+        train_ds, batch_size=args.batch_size,
+        shuffle=True,  num_workers=4, pin_memory=True
+    )
+    val_loader   = DataLoader(
+        val_ds,   batch_size=args.batch_size,
+        shuffle=False, num_workers=4, pin_memory=True
+    )
 
-        img_tensor = load_image(img_path).unsqueeze(0).to(device)
+    # Model instantiation (保留 3 通道 conv1)
+    model = get_mri_model(
+        num_classes=2,
+        in_channels=3,
+        pretrained=args.pretrained,
+        freeze_backbone=(args.freeze_epochs > 0),
+        dropout_p=0.5
+    ).to(device)
 
+    criterion = nn.CrossEntropyLoss()
+
+    # 初始阶段：只训练 head
+    optimizer = build_optimizer(
+        model,
+        lr_head=args.lr_head,
+        lr_backbone=args.lr_backbone,
+        weight_decay=args.weight_decay,
+        freeze_backbone=(args.freeze_epochs > 0)
+    )
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.2, patience=2
+    )
+
+    best_val_loss = float("inf")
+    patience_cnt  = 0
+
+    for epoch in range(1, args.epochs + 1):
+        print(f"\n=== Epoch {epoch}/{args.epochs} ===")
+
+        # 解冻阶段：在第 freeze_epochs+1 轮自动解冻
+        if epoch == args.freeze_epochs + 1 and args.freeze_epochs > 0:
+            print("🔓 Unfreezing backbone for full fine-tuning")
+            for p in model.parameters():
+                p.requires_grad = True
+            optimizer = build_optimizer(
+                model,
+                lr_head=args.lr_head,
+                lr_backbone=args.lr_backbone,
+                weight_decay=args.weight_decay,
+                freeze_backbone=False
+            )
+            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="min", factor=0.2, patience=2
+            )
+
+        # 训练
+        model.train()
+        train_loss = 0.0
+        for imgs, labels in tqdm(train_loader, desc="Training"):
+            imgs, labels = imgs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(imgs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item() * imgs.size(0)
+        train_loss /= len(train_ds)
+        print(f"Train Loss: {train_loss:.4f}")
+
+        # 验证
+        model.eval()
+        val_loss = 0.0
+        correct  = 0
         with torch.no_grad():
-            feat = feature_extractor(img_tensor)
-            feat = feat.view(feat.size(0), -1)
-            features.append(feat.cpu().numpy()[0])
-            labels.append(label)
-            ids.append(patient_id)
+            for imgs, labels in tqdm(val_loader, desc="Validating"):
+                imgs, labels = imgs.to(device), labels.to(device)
+                outputs = model(imgs)
+                loss = criterion(outputs, labels)
+                val_loss += loss.item() * imgs.size(0)
+                preds = outputs.argmax(dim=1)
+                correct += (preds == labels).sum().item()
+        val_loss /= len(val_ds)
+        val_acc  = correct / len(val_ds)
+        print(f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
 
-    return np.array(features), np.array(labels), ids
+        # LR 调度 & 早停
+        scheduler.step(val_loss)
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_cnt  = 0
+            save_path = os.path.join(
+                args.model_dir, f"best_model_epoch{epoch}.pth"
+            )
+            torch.save(model.state_dict(), save_path)
+            print(f"✅ Saved best model to {save_path}")
+        else:
+            patience_cnt += 1
+            if patience_cnt >= args.patience:
+                print(f"⛔ Early stopping at epoch {epoch}")
+                break
 
-
-def visualize_tsne(features, labels, out_path="tsne.png"):
-    tsne = TSNE(n_components=2, random_state=42, perplexity=5)
-    reduced = tsne.fit_transform(features)
-
-    plt.figure(figsize=(8, 6))
-    for label in np.unique(labels):
-        idxs = labels == label
-        plt.scatter(reduced[idxs, 0], reduced[idxs, 1], label=f"Label {label}", alpha=0.7)
-    plt.legend()
-    plt.title("t-SNE of MRI Features")
-    plt.savefig(out_path)
-    print(f"✅ t-SNE 图像已保存至: {out_path}")
-
-
-def main(args):
-    df = pd.read_csv(args.csv)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    extractor = get_feature_extractor(device=device)
-
-    features, labels, ids = extract_features(df, args.image_root, extractor, device)
-
-    os.makedirs(args.output_dir, exist_ok=True)
-    np.save(os.path.join(args.output_dir, "features.npy"), features)
-    np.save(os.path.join(args.output_dir, "labels.npy"), labels)
-    np.save(os.path.join(args.output_dir, "patient_ids.npy"), np.array(ids))
-
-    visualize_tsne(features, labels, os.path.join(args.output_dir, "tsne.png"))
-
+    print("🎉 Training complete!")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--csv", type=str, required=True, help="CSV with patient_id,label")
-    parser.add_argument("--image_root", type=str, required=True, help="Root folder where patient_id.png images are stored")
-    parser.add_argument("--output_dir", type=str, default="outputs/mri_features", help="Where to save features and t-SNE plot")
-    args = parser.parse_args()
-    main(args)
-
+    main()
