@@ -1,39 +1,42 @@
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.models as models
 
-# =============================================================================
-# === ENGINE 1: MODELS FOR TABULAR CLINICAL DATA                          ===
-# =============================================================================
+class SimpleMLP(nn.Module):
+    """一个带有 Dropout 正则化的简单多层感知机。"""
+    def __init__(self, input_size, hidden_size, output_size, dropout_p=0.5):
+        super(SimpleMLP, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(p=dropout_p),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(p=dropout_p),
+            nn.Linear(hidden_size, output_size)
+        )
 
-class ResBlock(nn.Module):
-    """A residual block for fully-connected layers."""
-    def __init__(self, in_features, out_features):
-        # ... (your existing code) ...
-        # ...
+    def forward(self, x):
+        return self.net(x)
 
-# ... (all your other tabular model classes: TabularResNet, SimpleMLP, etc.) ...
+class SimpleCNN(nn.Module):
+    """一个简单的一维卷积神经网络。"""
+    def __init__(self, num_features, num_classes):
+        super(SimpleCNN, self).__init__()
+        self.conv = nn.Sequential(
+            nn.Conv1d(1, 16, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
+            nn.Conv1d(16, 32, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
+        )
+        self.fc = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear((num_features // 4) * 32, 64),
+            nn.ReLU(),
+            nn.Linear(64, num_classes)
+        )
 
-
-# =============================================================================
-# === ENGINE 2: FEATURE EXTRACTOR FOR MRI DATA                            ===
-# =============================================================================
-
-def get_feature_extractor():
-    """
-    Loads a pre-trained ResNet50 model and removes its final classification
-    layer to use it as a feature extractor.
-
-    Sets the model to evaluation mode.
-    """
-    model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-    
-    # Remove the final fully-connected layer
-    layers = list(model.children())[:-1]
-    feature_extractor = nn.Sequential(*layers)
-    
-    # Set the model to evaluation mode
-    feature_extractor.eval()
-    
-    return feature_extractor
+    def forward(self, x):
+        x = x.unsqueeze(1)  # add channel dimension
+        x = self.conv(x)
+        return self.fc(x)

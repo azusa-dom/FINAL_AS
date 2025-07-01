@@ -1,98 +1,70 @@
+import torch
 import pandas as pd
-from sklearn.metrics import (
-    accuracy_score,
-    roc_auc_score,
-    roc_curve,
-    auc,
-    confusion_matrix,
-    classification_report,
-)
-import argparse
-import os
 import numpy as np
+import os
+import argparse
 from glob import glob
+from sklearn.metrics import (
+    accuracy_score, roc_auc_score, roc_curve,
+    classification_report, confusion_matrix
+)
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-
 def evaluate(args):
-    """
-    Evaluates the model's predictions from K-fold cross-validation.
-    """
-    all_pred_files = glob(os.path.join(args.preds_dir, "fold_*_predictions.csv"))
-    if not all_pred_files:
-        print(f"Error: No prediction files found in {args.preds_dir}")
+    pred_files = glob(os.path.join(args.preds_dir, "fold_*_predictions.csv"))
+    if not pred_files:
+        print(f"❌ 在 {args.preds_dir} 中未找到预测文件")
         return
 
-    all_dfs = [pd.read_csv(f) for f in all_pred_files]
-    df_all_preds = pd.concat(all_dfs, ignore_index=True)
+    all_dfs = [pd.read_csv(f) for f in pred_files]
+    df_all = pd.concat(all_dfs, ignore_index=True)
 
-    true_labels = df_all_preds["true_label"]
+    true_labels = df_all["true_label"]
+    logit_cols = [c for c in df_all.columns if "logit_" in c]
+    logits = df_all[logit_cols].values
 
-    # Get logit columns
-    logit_cols = [col for col in df_all_preds.columns if "logit_" in col]
-    pred_logits = df_all_preds[logit_cols].values
+    probs = torch.nn.Softmax(dim=1)(torch.tensor(logits)).numpy()
+    pred_labels = np.argmax(probs, axis=1)
 
-    # Convert logits to probabilities using softmax
-    softmax = torch.nn.Softmax(dim=1)
-    pred_probs = softmax(torch.tensor(pred_logits)).numpy()
+    # --- 总体指标 ---
+    print("\n--- 交叉验证总体评估结果 ---")
+    acc = accuracy_score(true_labels, pred_labels)
+    print(f"🎯 总体准确率 (Accuracy): {acc:.4f}")
 
-    # Get predicted labels by taking the argmax
-    pred_labels = np.argmax(pred_probs, axis=1)
-
-    # --- Calculate and Print Metrics ---
-    accuracy = accuracy_score(true_labels, pred_labels)
-
-    # For multi-class AUC, we use One-vs-Rest
     try:
-        auc_score = roc_auc_score(
-            true_labels, pred_probs, multi_class="ovr", average="weighted"
-        )
-        print(f"\nOverall Weighted AUC (OvR): {auc_score:.4f}")
-    except ValueError as e:
-        print(f"\nCould not compute AUC: {e}")
+        if probs.shape[1] == 2:
+            auc_score = roc_auc_score(true_labels, probs[:, 1])
+        else:
+            auc_score = roc_auc_score(true_labels, probs, multi_class="ovr", average="weighted")
+        print(f"🎯 总体AUC分数: {auc_score:.4f}")
+    except Exception as e:
+        auc_score = -1
+        print(f"⚠️ 无法计算AUC: {e}")
 
-    print(f"Overall Accuracy: {accuracy:.4f}")
-
-    print("\nClassification Report:")
+    print("\n📋 总体分类报告:")
     print(classification_report(true_labels, pred_labels))
 
-    print("\nConfusion Matrix:")
+    # --- 保存图表和指标 ---
     cm = confusion_matrix(true_labels, pred_labels)
-    print(cm)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", 
+                xticklabels=np.unique(true_labels), 
+                yticklabels=np.unique(true_labels))
+    plt.title("总体混淆矩阵 (Overall Confusion Matrix)")
+    plt.xlabel("预测标签")
+    plt.ylabel("真实标签")
+    cm_path = os.path.join(args.preds_dir, "confusion_matrix.png")
+    plt.savefig(cm_path)
+    print(f"\n✅ 混淆矩阵已保存至: {cm_path}")
 
-    # Optional: Plot confusion matrix
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
-    plt.xlabel("Predicted Label")
-    plt.ylabel("True Label")
-    plt.title("Overall Confusion Matrix")
-
-    # Save the plot
-    plot_save_path = os.path.join(args.preds_dir, "confusion_matrix.png")
-    plt.savefig(plot_save_path)
-    print(f"\nConfusion matrix plot saved to {plot_save_path}")
-
+    metrics = {"accuracy": acc, "auc": auc_score}
+    metrics_path = os.path.join(args.preds_dir, "metrics_summary.csv")
+    pd.DataFrame([metrics]).to_csv(metrics_path, index=False)
+    print(f"📊 总体指标已保存至: {metrics_path}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Evaluate K-fold cross-validation predictions."
-    )
-    parser.add_argument(
-        "--preds_dir",
-        type=str,
-        required=True,
-        help="Directory containing the prediction CSV files.",
-    )
-
-    # A small hack to make the script find torch if it's not in the environment
-    try:
-        import torch
-    except ImportError:
-        print(
-            "PyTorch not found, which is required for softmax. Please install PyTorch."
-        )
-        exit()
-
+    parser = argparse.ArgumentParser(description="评估临床模型结果。")
+    parser.add_argument("--preds_dir", required=True, help="预测结果文件所在目录。")
     args = parser.parse_args()
     evaluate(args)
