@@ -1,0 +1,7 @@
+{
+    "silhouette_score": 0.26548895239830017,
+    "patient_group_cv_mean_accuracy": 1.0,
+    "patient_group_cv_std_accuracy": 0.0,
+    "n_valid_folds": 9,
+    "n_skipped_folds": 1
+}
