@@ -1,143 +1,171 @@
-import argparse
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+plot_shap_dca.py
+生成 SHAP + 校准后 DCA 图（SCI 期刊级格式）
+- 自动兼容无 Patient_ID
+- 使用 strict=False 加载 state_dict，打印加载报告
+- 在验证集上以 Isotonic Regression 做概率校准
+2025 · Git Expert
+"""
+
 import os
-import shap
+import sys
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 import numpy as np
 import pandas as pd
+import torch
+import shap
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
+from sklearn.isotonic import IsotonicRegression
 
+# ─────────── Matplotlib SCI 期刊配置（非 Times 字体） ───────────
+plt.rcParams.update({
+    "figure.dpi":      300,
+    "savefig.dpi":     300,
+    "figure.figsize":  (8, 6),
+    "font.family":     "sans-serif",
+    "font.sans-serif": ["Arial", "Liberation Sans", "DejaVu Sans"],
+    "font.size":       12,
+    "axes.titlesize":  16,
+    "axes.labelsize":  14,
+    "xtick.labelsize": 12,
+    "ytick.labelsize": 12,
+    "legend.fontsize": 12,
+})
 
-def plot_shap_summary(model, X_test, feature_names, save_dir):
-    """
-    根据已训练的模型和测试数据生成并保存SHAP摘要图。
+# ─────────── 导入 ClinicalNet ───────────
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+sys.path.insert(0, REPO_ROOT)
+try:
+    from src.models import ClinicalNet
+except ImportError:
+    # 兜底示例网络（仅供调试）
+    class ClinicalNet(torch.nn.Module):
+        def __init__(self, input_dim, hidden=64, n_classes=2):
+            super().__init__()
+            self.net = torch.nn.Sequential(
+                torch.nn.Linear(input_dim, hidden),
+                torch.nn.ReLU(inplace=True),
+                torch.nn.Linear(hidden, n_classes),
+            )
+        def forward(self, x):
+            return self.net(x)
 
-    Args:
-        model: 任何与SHAP兼容的已训练模型对象。
-        X_test (pd.DataFrame or np.ndarray): 用于解释的测试特征数据。
-        feature_names (list): 特征名称列表。
-        save_dir (str): 保存图像的目录。
-    """
-    print("📊 正在生成 SHAP 图...")
-    # 创建一个解释器
-    # 对于树模型（如XGBoost），使用 shap.TreeExplainer 会更快
-    if hasattr(model, "predict_proba"):
-        explainer = shap.KernelExplainer(model.predict_proba, X_test)
-    else:
-        explainer = shap.KernelExplainer(model.predict, X_test)
+# ─────────── SHAP 绘图 ───────────
+def plot_shap(model, background, x_test, feat_names, out_dir, pos_cls=1):
+    explainer = shap.DeepExplainer(model, background)
+    shap_vals = explainer.shap_values(x_test)[pos_cls]
+    df_test   = pd.DataFrame(x_test.cpu().numpy(), columns=feat_names)
 
-    # 计算SHAP值
-    shap_values = explainer.shap_values(X_test)
-
-    # 确保 X_test 是一个DataFrame以便正确显示特征名称
-    if not isinstance(X_test, pd.DataFrame):
-        X_test_df = pd.DataFrame(X_test, columns=feature_names)
-    else:
-        X_test_df = X_test
-
-    # 绘制摘要图（beeswarm plot更具信息量）
     plt.figure()
-    # 对于二分类问题，通常我们只关心正类的SHAP值
     shap.summary_plot(
-        shap_values[1] if isinstance(shap_values, list) else shap_values,
-        X_test_df,
-        show=False,
+        shap_vals, df_test,
+        plot_type="dot",
+        max_display=min(25, len(feat_names)),
+        show=False
     )
-    plt.title("SHAP Summary Plot")
     plt.tight_layout()
-    save_path = os.path.join(save_dir, "shap_summary_plot.png")
-    plt.savefig(save_path)
+
+    os.makedirs(out_dir, exist_ok=True)
+    p = os.path.join(out_dir, "shap_summary.png")
+    plt.savefig(p, bbox_inches="tight")
     plt.close()
-    print(f"✅ SHAP 图已保存 → {save_path}")
+    print(f"✅ SHAP 图已保存 → {p}")
 
-
-def plot_decision_curve(y_true, y_pred_probs, save_dir):
-    """
-    根据真实标签和模型预测概率生成并保存决策曲线分析图。
-
-    Args:
-        y_true (np.ndarray): 真实标签 (0 或 1)。
-        y_pred_probs (np.ndarray): 模型对正类的预测概率。
-        save_dir (str): 保存图像的目录。
-    """
-    print("📈 正在生成 DCA 曲线图...")
+# ─────────── DCA 曲线 ───────────
+def plot_dca(y, p, out_dir):
     thresholds = np.linspace(0.01, 0.99, 100)
-    net_benefit_model = []
+    n = y.size
+    nb_model = [
+        ((p >= t) & (y == 1)).sum() / n
+        - ((p >= t) & (y == 0)).sum() / n * t / (1 - t)
+        for t in thresholds
+    ]
+    prev    = y.mean()
+    nb_all  = prev - (1 - prev) * thresholds / (1 - thresholds)
+    nb_none = np.zeros_like(thresholds)
 
-    # 计算模型的净获益
-    for t in thresholds:
-        y_pred = (y_pred_probs >= t).astype(int)
-        n = len(y_true)
-        tp = np.sum((y_pred == 1) & (y_true == 1))
-        fp = np.sum((y_pred == 1) & (y_true == 0))
-        net_benefit_model.append((tp / n) - (fp / n) * (t / (1 - t)))
-
-    # 计算 "Treat All" 和 "Treat None" 策略的净获益
-    p_all = np.mean(y_true)
-    net_benefit_all = p_all - (1 - p_all) * (thresholds / (1 - thresholds))
-    net_benefit_none = np.zeros_like(thresholds)
-
-    # 绘图
-    plt.figure(figsize=(8, 6))
-    plt.plot(thresholds, net_benefit_model, label="Model", color="crimson")
-    plt.plot(
-        thresholds, net_benefit_all, label="Treat All", linestyle="--", color="black"
-    )
-    plt.plot(
-        thresholds, net_benefit_none, label="Treat None", linestyle=":", color="gray"
-    )
-    plt.ylim(
-        min(np.nanmin(net_benefit_model), -0.1),
-        max(np.nanmax(net_benefit_model), np.nanmax(net_benefit_all), 0.5),
-    )
+    plt.figure()
+    plt.plot(thresholds, nb_model, label="Calibrated Model", lw=2)
+    plt.plot(thresholds, nb_all,  "--", label="Treat-All")
+    plt.plot(thresholds, nb_none, ":", label="Treat-None")
     plt.xlabel("Threshold Probability")
     plt.ylabel("Net Benefit")
-    plt.title("Decision Curve Analysis (DCA)")
-    plt.grid(alpha=0.4)
-    plt.legend()
+    plt.title("Decision Curve Analysis (Calibrated)")
+    plt.ylim(min(nb_model) - .05, max(nb_all) + .05)
+    plt.grid(alpha=.4)
+    plt.legend(frameon=False)
     plt.tight_layout()
-    save_path = os.path.join(save_dir, "dca_curve.png")
-    plt.savefig(save_path)
+
+    os.makedirs(out_dir, exist_ok=True)
+    p = os.path.join(out_dir, "dca_curve_calibrated.png")
+    plt.savefig(p, bbox_inches="tight")
     plt.close()
-    print(f"✅ DCA 图已保存 → {save_path}")
+    print(f"✅ 校准后 DCA 图已保存 → {p}")
 
+# ─────────── 主流程 ───────────
+def run_fixed(fold=1):
+    # —— 固定路径配置 —— 
+    model_path = (
+        f"/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/"
+        f"results/final_run/best_model_fold_{fold}.pth"
+    )
+    data_dir = (
+        "/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/"
+        "results/final_run/processed_data"
+    )
+    save_dir = (
+        f"/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/"
+        f"results/final_run/figures_fold{fold}"
+    )
 
+    print(f"\n📦 Fold {fold}: 载入数据和模型…")
+    tr_csv = os.path.join(data_dir, f"fold_{fold}_train.csv")
+    va_csv = os.path.join(data_dir, f"fold_{fold}_val.csv")
+    df_tr  = pd.read_csv(tr_csv)
+    df_va  = pd.read_csv(va_csv)
+
+    # 标签 & 特征
+    y_va = df_va["label"].values.astype(int)
+    drop_va = [c for c in ["label", "Patient_ID"] if c in df_va.columns]
+    drop_tr = [c for c in ["label", "Patient_ID"] if c in df_tr.columns]
+    X_va = df_va.drop(columns=drop_va)
+    X_tr = df_tr.drop(columns=drop_tr)
+    feat_names = X_va.columns.tolist()
+
+    # 张量化
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    X_va_t = torch.tensor(X_va.values, dtype=torch.float32, device=device)
+    X_tr_t = torch.tensor(X_tr.values, dtype=torch.float32, device=device)
+
+    # 加载模型（strict=False）
+    model = ClinicalNet(input_dim=X_va_t.shape[1]).to(device)
+    state = torch.load(model_path, map_location=device)
+    res = model.load_state_dict(state, strict=False)
+    print("🔧 load_state_dict 结果 →", res)
+    model.eval()
+
+    # SHAP
+    print("📊 生成 SHAP 图…")
+    plot_shap(model, X_tr_t[: min(100, len(X_tr_t))], X_va_t, feat_names, save_dir)
+
+    # DCA with calibration
+    print("📈 生成 校准后 DCA 曲线…")
+    with torch.no_grad():
+        logits      = model(X_va_t)
+        y_prob_raw  = torch.softmax(logits, dim=1)[:, 1].cpu().numpy()
+
+    # 校准：Isotonic Regression
+    ir = IsotonicRegression(out_of_bounds='clip')
+    y_prob_cal  = ir.fit_transform(y_prob_raw, y_va)
+
+    plot_dca(y_va, y_prob_cal, save_dir)
+
+    print(f"\n🎉 所有图表已生成 → {save_dir}")
+
+# 🚀 执行（修改 fold=0~4）
 if __name__ == "__main__":
-    # --- 这是一个如何使用这些函数的演示 ---
-    print("--- 开始绘图脚本演示 ---")
-
-    # 1. 创建模拟数据和模型 (在您的真实代码中，您会加载这些)
-    from sklearn.datasets import make_classification
-
-    X, y = make_classification(
-        n_samples=1000, n_features=10, n_informative=5, n_redundant=0, random_state=42
-    )
-    feature_names = [f"feature_{i}" for i in range(X.shape[1])]
-    X_df = pd.DataFrame(X, columns=feature_names)
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_df, y, test_size=0.3, random_state=42, stratify=y
-    )
-
-    # 假设这是一个您已经训练好的模型
-    print("正在训练一个模拟模型...")
-    # model = YourFusionModel().fit(X_train, y_train)
-    model = LogisticRegression().fit(X_train, y_train)
-    print("模拟模型训练完成。")
-
-    # 2. 指定保存目录
-    save_directory = "results_plots_demo"
-    os.makedirs(save_directory, exist_ok=True)
-
-    # 3. 调用绘图函数
-    # 获取测试集的预测概率用于DCA
-    test_probabilities = model.predict_proba(X_test)[:, 1]
-
-    # 生成 SHAP 图
-    # 注意：对于大数据集，SHAP可能很慢，可以对X_test进行采样
-    plot_shap_summary(model, X_test, feature_names, save_directory)
-
-    # 生成 DCA 图
-    plot_decision_curve(y_test, test_probabilities, save_directory)
-
-    print("\n✅ 绘图演示完成。")
+    run_fixed(fold=1)
