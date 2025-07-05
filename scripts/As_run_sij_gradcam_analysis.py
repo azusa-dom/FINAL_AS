@@ -21,8 +21,9 @@ from tqdm import tqdm
 # 1) 配置：项目根目录、数据路径、输出目录、随机种子、轻度增强
 # ————————————————————————————————————————————— #
 # project_root 指向 FINAL_AS 根目录
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))  # 修改为只退一层
 # 健康组 & AS 组目录
+
 data_dirs = {
     "Healthy": [
         os.path.join(project_root, "data", "mri_health", "health1"),
@@ -32,10 +33,10 @@ data_dirs = {
         os.path.join(project_root, "data", "mri_AS"),
     ],
 }
+
 # 输出目录
 output_dir = os.path.join(project_root, "results", "grad_cam_outputs")
 os.makedirs(output_dir, exist_ok=True)
-#print(f"Grad-CAM outputs will be saved to: {output_dir}")
 
 # 随机种子
 SEED = 42
@@ -92,7 +93,7 @@ for label, cls_key in enumerate(['Healthy','AS']):
     for root in data_dirs[cls_key]:
         if not os.path.isdir(root):
             print(f"Error: Directory not found: {root}", file=sys.stderr)
-            sys.exit(1)
+            continue  # 改为 continue 不退出整个程序
         for subj in os.listdir(root):
             subdir = os.path.join(root, subj)
             if not os.path.isdir(subdir):
@@ -105,6 +106,7 @@ for label, cls_key in enumerate(['Healthy','AS']):
                         'label': label,
                         'cls': cls_key
                     })
+
 # 检查
 if not all_images:
     print("No images found in data directories.", file=sys.stderr)
@@ -115,7 +117,6 @@ if not all_images:
 # ————————————————————————————————————————————— #
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
-# 替换最后分类层为2类输出
 model.fc = nn.Linear(model.fc.in_features, 2)
 model.to(device)
 target_layer = model.layer4[-1]
@@ -123,13 +124,11 @@ target_layer = model.layer4[-1]
 # ————————————————————————————————————————————— #
 # 5) 留一法 Fine-tune + Grad-CAM 输出期刊级三联图
 # ————————————————————————————————————————————— #
-print(f"🔍 Loaded {len(all_images)} image slices across {len(set(i['subject'] for i in all_images))} subjects.")
+print(f"\U0001f50d Loaded {len(all_images)} image slices across {len(set(i['subject'] for i in all_images))} subjects.")
 subjects = sorted(set(i['subject'] for i in all_images))
 for subj in tqdm(subjects, desc='Subject LOOCV'):
-    # 划分训练/测试
     train_set = [i for i in all_images if i['subject'] != subj]
     test_set = [i for i in all_images if i['subject'] == subj]
-    # Fine-tune 模型
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = nn.CrossEntropyLoss()
     model.train()
@@ -144,7 +143,6 @@ for subj in tqdm(subjects, desc='Subject LOOCV'):
             loss = criterion(out, lbl)
             loss.backward()
             optimizer.step()
-    # 生成 Grad-CAM 并可视化
     model.eval()
     camer = GradCAM(model, target_layer)
     for item in test_set:
@@ -153,9 +151,7 @@ for subj in tqdm(subjects, desc='Subject LOOCV'):
         out = model(inp)
         cls_pred = out.argmax(dim=1).item()
         heatmap = camer(inp, cls_pred)
-        # 专业可视化三联
         ori_gray = np.array(original_img.resize((224,224)))
-        # 三联subplot
         fig, (ax0, ax1, ax2) = plt.subplots(1,3, figsize=(12,4))
         ax0.imshow(ori_gray, cmap='gray')
         ax0.set_title('Original')
@@ -167,11 +163,10 @@ for subj in tqdm(subjects, desc='Subject LOOCV'):
         ax2.imshow(cv2.applyColorMap(np.uint8(heatmap*255), cv2.COLORMAP_JET), alpha=0.5)
         ax2.set_title('Overlay')
         ax2.axis('off')
-        # colorbar
         cbar = fig.colorbar(im1, ax=[ax0,ax1,ax2], location='right', fraction=0.046, pad=0.04)
         cbar.set_label('Activation', rotation=270, labelpad=15)
         fig.suptitle(f"Subject: {item['subject']} | Class: {item['cls']}", fontsize=16)
         out_name = f"{item['subject']}_{os.path.basename(item['path']).split('.')[0]}_academic.png"
         fig.savefig(os.path.join(output_dir, out_name), dpi=300, bbox_inches='tight', pad_inches=0.1)
         plt.close(fig)
-print("✅ Grad-CAM analysis complete. Results saved in:", output_dir)
+print("\u2705 Grad-CAM analysis complete. Results saved in:", output_dir)

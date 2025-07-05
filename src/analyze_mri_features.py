@@ -14,7 +14,6 @@ try:
 except ImportError:
     UMAP_AVAILABLE = False
 
-# 图像预处理：标准 ImageNet 归一化
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
 IMG_TRANSFORM = transforms.Compose([
@@ -30,27 +29,27 @@ def get_feature_extractor(model_name, device):
     extractor.eval()
     return extractor
 
-# ✅ 这个函数做了核心修改：读取所有子文件夹，使用子文件夹名作为 label
 def extract_features(input_dir, extractor, device):
     feats, patient_ids, paths = [], [], []
-    for subfolder in sorted(os.listdir(input_dir)):
-        subpath = os.path.join(input_dir, subfolder)
-        if not os.path.isdir(subpath):
+    for fname in sorted(os.listdir(input_dir)):
+        if "__aug" in fname:  # 跳过增强样本
             continue
-        for fname in sorted(os.listdir(subpath)):
-            if "__aug" in fname:
-                continue
-            if not fname.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
-                continue
-            fpath = os.path.join(subpath, fname)
-            img = Image.open(fpath).convert('RGB')
-            x = IMG_TRANSFORM(img).unsqueeze(0).to(device)
-            with torch.no_grad():
-                out = extractor(x)
-            vec = out.cpu().numpy().squeeze()
-            feats.append(vec)
-            patient_ids.append(subfolder)  # 子文件夹名作为类别标签
-            paths.append(fpath)
+        if not fname.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
+            continue
+        path = os.path.join(input_dir, fname)
+        img = Image.open(path).convert('RGB')
+        x = IMG_TRANSFORM(img).unsqueeze(0).to(device)
+        with torch.no_grad():
+            out = extractor(x)
+        vec = out.cpu().numpy().squeeze()
+        feats.append(vec)
+        # 从文件名提取患者ID (KNEE_1_... 或 SIJ_2_...)
+        if fname.startswith(("KNEE", "SIJ")):
+            pid = fname.split("_")[1]
+        else:
+            pid = "unknown"
+        patient_ids.append(pid)
+        paths.append(path)
     return np.vstack(feats), patient_ids, paths
 
 def visualize(feats, patient_ids, output_path, method="tsne", perplexity=5.0, n_neighbors=15, min_dist=0.1, random_state=42):
@@ -62,25 +61,22 @@ def visualize(feats, patient_ids, output_path, method="tsne", perplexity=5.0, n_
     else:
         reducer = TSNE(n_components=2, perplexity=perplexity, random_state=random_state)
         emb = reducer.fit_transform(feats)
-
-    # 配色（颜色盲友好）
+    # 配色
     COLORBLIND_PALETTE = [
         "#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00",
         "#a65628", "#f781bf", "#999999",
     ]
     unique_ids = sorted(set(patient_ids))
     colors = {uid: COLORBLIND_PALETTE[i % len(COLORBLIND_PALETTE)] for i, uid in enumerate(unique_ids)}
-
     fig, ax = plt.subplots(figsize=(8, 6))
     for pid in unique_ids:
         mask = [x == pid for x in patient_ids]
         ax.scatter(np.array(emb)[mask, 0], np.array(emb)[mask, 1],
                    label=pid, color=colors[pid], edgecolor="black", lw=0.3, alpha=0.8, s=40)
-
     ax.set_xlabel(f"{method.upper()} Dimension 1", fontsize=14)
     ax.set_ylabel(f"{method.upper()} Dimension 2", fontsize=14)
-    ax.set_title("MRI Feature Distribution by Label", fontsize=16)
-    ax.legend(title="Group", bbox_to_anchor=(1.02, 1), loc='upper left', frameon=False, fontsize=12)
+    ax.set_title("AS Patients MRI Feature Distribution", fontsize=16)
+    ax.legend(title="Patient ID", bbox_to_anchor=(1.02, 1), loc='upper left', frameon=False, fontsize=12)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.grid(False)
@@ -92,7 +88,7 @@ def visualize(feats, patient_ids, output_path, method="tsne", perplexity=5.0, n_
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", required=True, help="包含多个子文件夹（每个子文件夹是一个分类标签）的图像路径")
+    parser.add_argument("--input-dir", required=True, help="1_AS 文件夹路径")
     parser.add_argument("--output-dir", default="outputs", help="输出目录")
     parser.add_argument("--model", choices=["resnet18", "resnet34", "resnet50", "resnet101"], default="resnet50")
     parser.add_argument("--method", choices=["tsne", "umap"], default="tsne")
@@ -107,16 +103,15 @@ def main():
     np.random.seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"🖥️ Using device: {device}")
-
     extractor = get_feature_extractor(args.model, device)
     feats, patient_ids, paths = extract_features(args.input_dir, extractor, device)
-    emb = visualize(feats, patient_ids, os.path.join(args.output_dir, "mri_tsne_by_label.png"),
+    emb = visualize(feats, patient_ids, os.path.join(args.output_dir, "as_mri_tsne.png"),
                     method=args.method, perplexity=args.perplexity, n_neighbors=args.n_neighbors,
                     min_dist=args.min_dist, random_state=args.seed)
-
-    np.savez_compressed(os.path.join(args.output_dir, "mri_features_by_label.npz"),
+    # 可选：输出 npz 方便后续分析
+    np.savez_compressed(os.path.join(args.output_dir, "as_mri_feats.npz"),
                         features=feats, patient_ids=np.array(patient_ids), paths=np.array(paths), embedding=emb)
-    print(f"✅ Features & embeddings saved to {args.output_dir}/mri_features_by_label.npz")
+    print(f"✅ Features & embeddings saved to {args.output_dir}/as_mri_feats.npz")
 
 if __name__ == "__main__":
     main()

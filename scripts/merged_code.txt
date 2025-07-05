@@ -1,0 +1,2906 @@
+--- Start of file: ./mri_bootstrap_auc_group.py ---
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+mri_bootstrap_auc_group.py
+
+递归扫描 data-dir 下所有图像文件（.png/.jpg/.jpeg），
+按受试者 ID 分组交叉验证 (GroupKFold)，避免同一受试者切片泄漏，
+提取 ResNet18 特征，用 LogisticRegression 训练，
+并报告 AUC 点估计及其 95% Bootstrap 置信区间。
+
+用法示例：
+    python scripts/mri_bootstrap_auc_group.py \
+      --data-dir /Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/data/mri_image_modified \
+      --n-splits 5 \
+      --n-bootstrap 2000 \
+      --batch-size 16 \
+      --seed 42
+"""
+
+import argparse
+import random
+import re
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import GroupKFold
+from sklearn.linear_model import LogisticRegression
+
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
+from torch.utils.data import Dataset, DataLoader
+
+
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="MRI AUC + 95% CI via bootstrap with GroupKFold"
+    )
+    p.add_argument("--data-dir",   type=str, required=True,
+                   help="根目录，递归扫描所有子文件夹下的 .png/.jpg/.jpeg")
+    p.add_argument("--n-splits",   type=int, default=5,
+                   help="GroupKFold 的折数（默认 5），LOOCV 请设为受试者数")
+    p.add_argument("--n-bootstrap",type=int, default=2000,
+                   help="Bootstrap 重采样次数（默认 2000）")
+    p.add_argument("--batch-size", type=int, default=16,
+                   help="特征提取 batch size")
+    p.add_argument("--seed",       type=int, default=42,
+                   help="随机种子，保证可复现")
+    p.add_argument("--device",     type=str,
+                   default="cuda" if torch.cuda.is_available() else "cpu",
+                   help="运行设备：cuda 或 cpu")
+    return p.parse_args()
+
+
+class MRIDataset(Dataset):
+    """递归读取所有图像，提取 subject_id 并打标签"""
+    IMG_EXTS = {".png", ".jpg", ".jpeg"}
+
+    def __init__(self, root_dir, transform=None):
+        self.samples = []
+        root = Path(root_dir)
+        if not root.is_dir():
+            raise FileNotFoundError(f"根目录不存在: {root_dir}")
+
+        for img_path in root.rglob("*"):
+            if img_path.suffix.lower() in self.IMG_EXTS:
+                # 提取受试者 ID
+                stem = img_path.stem
+                m = re.match(r"^(KNEE_\d+|SIJ_\d+)", stem)
+                if m:
+                    subject_id = m.group(1)
+                else:
+                    # 去掉尾部括号
+                    subject_id = re.sub(r"\s*\(.*\)$", "", stem)
+                # 打标签：父文件夹名含 'AS' 即为阳性
+                label = 1 if "AS" in img_path.parent.name.upper() else 0
+                self.samples.append((str(img_path), label, subject_id))
+
+        if not self.samples:
+            raise ValueError(f"{root_dir} 下未找到任何图像文件。")
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        path, label, sid = self.samples[idx]
+        img = Image.open(path).convert("RGB")
+        if self.transform:
+            img = self.transform(img)
+        return img, label, sid
+
+
+class FeatureExtractor(nn.Module):
+    """ResNet18 backbone，无最终 fc，用于提取512维特征"""
+    def __init__(self):
+        super().__init__()
+        resnet = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        self.backbone = nn.Sequential(*list(resnet.children())[:-1])
+
+    def forward(self, x):
+        f = self.backbone(x)       # [B,512,1,1]
+        return f.view(f.size(0), -1)  # [B,512]
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+def bootstrap_ci(y_true, y_score, n_bootstrap=2000, seed=42):
+    rng = np.random.RandomState(seed)
+    n = len(y_true)
+    auc0 = roc_auc_score(y_true, y_score)
+    boots = []
+    for _ in range(n_bootstrap):
+        idx = rng.randint(0, n, n)
+        if len(np.unique(y_true[idx])) < 2:
+            continue
+        boots.append(roc_auc_score(y_true[idx], y_score[idx]))
+    if len(boots) < n_bootstrap * 0.8:
+        raise RuntimeError(
+            f"有效 bootstrap 次数太少: {len(boots)}/{n_bootstrap}"
+        )
+    low, high = np.percentile(boots, [2.5, 97.5])
+    return auc0, low, high
+
+
+def main():
+    args = parse_args()
+    set_seed(args.seed)
+    device = torch.device(args.device)
+    print(f"[INFO] Using device: {device}")
+
+    # 图像预处理
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+    ])
+    ds = MRIDataset(args.data_dir, transform=transform)
+    loader = DataLoader(
+        ds, batch_size=args.batch_size,
+        shuffle=False, num_workers=4, pin_memory=True
+    )
+
+    # 提取所有切片的特征、标签、subject_id
+    extractor = FeatureExtractor().to(device).eval()
+    feats, labels, groups = [], [], []
+    with torch.no_grad():
+        for imgs, labs, sids in tqdm(loader, desc="Feature Extract"):
+            imgs = imgs.to(device)
+            f = extractor(imgs).cpu().numpy()  # [B,512]
+            feats.append(f)
+            labels.extend(labs.tolist())
+            groups.extend(sids)
+
+    X = np.vstack(feats)
+    y = np.array(labels)
+    print(f"[INFO] Total samples: {len(y)}, Pos: {y.sum()}, Neg: {len(y)-y.sum()}")
+
+    # 分组交叉验证
+    unique_sids = list(set(groups))
+    n_splits = min(args.n_splits, len(unique_sids))
+    gkf = GroupKFold(n_splits=n_splits)
+    print(f"[INFO] Using GroupKFold with {n_splits} splits on {len(unique_sids)} subjects")
+
+    y_true, y_score = [], []
+    for fold, (tr_idx, va_idx) in enumerate(gkf.split(X, y, groups), 1):
+        clf = LogisticRegression(solver="liblinear", random_state=args.seed)
+        clf.fit(X[tr_idx], y[tr_idx])
+        probs = clf.predict_proba(X[va_idx])[:, 1]
+        y_true.extend(y[va_idx].tolist())
+        y_score.extend(probs.tolist())
+        print(f"  Fold {fold}: val samples = {len(va_idx)}")
+
+    y_true = np.array(y_true)
+    y_score = np.array(y_score)
+
+    print("[INFO] Computing AUC & Bootstrap 95% CI...")
+    auc_pt, ci_l, ci_u = bootstrap_ci(
+        y_true, y_score,
+        n_bootstrap=args.n_bootstrap,
+        seed=args.seed
+    )
+
+    print("\n====== MRI Model Performance ======")
+    print(f"Subject-level AUC point estimate : {auc_pt:.3f}")
+    print(f"95% CI                          : [{ci_l:.3f}, {ci_u:.3f}]")
+    print("====================================\n")
+
+
+if __name__ == "__main__":
+    main()
+-e 
+--- End of file: ./mri_bootstrap_auc_group.py ---
+
+
+--- Start of file: ./generate_publication_plots.py ---
+import pandas as pd
+import numpy as np
+import os
+import argparse
+from glob import glob
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import (
+    roc_curve, auc,
+    precision_recall_curve, average_precision_score,
+    confusion_matrix, brier_score_loss
+)
+from sklearn.calibration import calibration_curve
+import torch
+
+# --- 设置出版级图表样式 (SCI Standard) ---
+# 建议使用无衬线字体，如 Arial, Helvetica, 或 DejaVu Sans
+plt.rcParams.update({
+    'font.family': 'sans-serif',
+    'font.sans-serif': ['Arial'],
+    'font.size': 14,
+    'axes.labelsize': 16,
+    'axes.titlesize': 18,
+    'xtick.labelsize': 12,
+    'ytick.labelsize': 12,
+    'legend.fontsize': 14,
+    'figure.dpi': 300,  # 提高图像分辨率
+    'savefig.dpi': 300,
+    'savefig.bbox': 'tight' # 保存时自动调整边界
+})
+# ---------------------------------------------
+
+def plot_roc_curve(y_true, y_probs, output_path):
+    """绘制并保存精美的ROC曲线"""
+    fpr, tpr, _ = roc_curve(y_true, y_probs)
+    roc_auc = auc(fpr, tpr)
+
+    plt.figure(figsize=(7, 7))
+    plt.plot(fpr, tpr, color='#FF6F61', lw=2.5, label=f'Model (AUC = {roc_auc:.3f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Chance')
+    plt.xlim([-0.02, 1.0])
+    plt.ylim([0.0, 1.02])
+    plt.xlabel('1 - Specificity (False Positive Rate)')
+    plt.ylabel('Sensitivity (True Positive Rate)')
+    plt.title('Receiver Operating Characteristic Curve')
+    plt.legend(loc="lower right")
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.savefig(output_path)
+    print(f"✅ ROC 曲线已保存至: {output_path}")
+    plt.close()
+
+def plot_pr_curve(y_true, y_probs, output_path):
+    """绘制并保存精美的PR曲线"""
+    precision, recall, _ = precision_recall_curve(y_true, y_probs)
+    avg_precision = average_precision_score(y_true, y_probs)
+
+    plt.figure(figsize=(7, 7))
+    plt.step(recall, precision, where='post', color='#6B5B95', lw=2.5, label=f'Model (AP = {avg_precision:.3f})')
+    plt.xlabel('Recall (Sensitivity)')
+    plt.ylabel('Precision')
+    plt.ylim([0.0, 1.02])
+    plt.xlim([0.0, 1.0])
+    plt.title('Precision-Recall Curve')
+    plt.legend(loc="upper right")
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.savefig(output_path)
+    print(f"✅ PR 曲线已保存至: {output_path}")
+    plt.close()
+
+def plot_confusion_matrix(y_true, y_pred, output_path, class_names=['Negative', 'Positive']):
+    """绘制并保存出版级的混淆矩阵热图"""
+    cm = confusion_matrix(y_true, y_pred)
+    cm_percent = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+    
+    labels = (np.asarray(["{0:d}\n({1:.1%})".format(value, percentage)
+                         for value, percentage in zip(cm.flatten(), cm_percent.flatten())])
+              ).reshape(cm.shape)
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=labels, fmt='', cmap='Blues', cbar=False, xticklabels=class_names, yticklabels=class_names, annot_kws={"size": 16})
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.title('Confusion Matrix')
+    plt.savefig(output_path)
+    print(f"✅ 混淆矩阵已保存至: {output_path}")
+    plt.close()
+
+def plot_calibration_curve(y_true, y_probs, output_path, n_bins=10):
+    """【新增】绘制并保存校准曲线"""
+    prob_true, prob_pred = calibration_curve(y_true, y_probs, n_bins=n_bins, strategy='uniform')
+    brier = brier_score_loss(y_true, y_probs)
+
+    plt.figure(figsize=(7, 7))
+    plt.plot(prob_pred, prob_true, "s-", color='#88B04B', label=f'Model (Brier Score = {brier:.3f})')
+    plt.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
+    plt.xlabel("Mean Predicted Probability")
+    plt.ylabel("Fraction of Positives")
+    plt.ylim([-0.05, 1.05])
+    plt.title('Calibration Curve')
+    plt.legend(loc="lower right")
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.savefig(output_path)
+    print(f"✅ 校准曲线已保存至: {output_path}")
+    plt.close()
+
+def plot_probability_distribution(y_true, y_probs, output_path):
+    """【新增】绘制并保存预测概率的分布图"""
+    df = pd.DataFrame({'Probability': y_probs, 'True Label': y_true})
+    
+    plt.figure(figsize=(10, 6))
+    sns.histplot(data=df, x='Probability', hue='True Label', bins=50, kde=True, palette=['#4A90E2', '#D0021B'])
+    plt.xlabel("Predicted Probability of Positive Class")
+    plt.ylabel("Count")
+    plt.title("Distribution of Predicted Probabilities")
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend(title='True Label', labels=['Positive (1)', 'Negative (0)'])
+    plt.savefig(output_path)
+    print(f"✅ 概率分布图已保存至: {output_path}")
+    plt.close()
+
+
+def generate_visualizations(preds_dir):
+    """主函数：加载所有预测结果并生成所有图表"""
+    output_dir = os.path.join(preds_dir, 'publication_plots')
+    os.makedirs(output_dir, exist_ok=True)
+    
+    all_pred_files = glob(os.path.join(preds_dir, "fold_*_predictions.csv"))
+    if not all_pred_files:
+        print(f"❌ 错误: 在 {preds_dir} 中没有找到任何预测文件。")
+        return
+
+    df_all = pd.concat([pd.read_csv(f) for f in all_pred_files], ignore_index=True)
+    
+    true_labels = df_all["true_label"]
+    logit_cols = [c for c in df_all.columns if "logit_" in c]
+    logits = df_all[logit_cols].values
+
+    probs_tensor = torch.nn.Softmax(dim=1)(torch.tensor(logits, dtype=torch.float32))
+    positive_class_probs = probs_tensor[:, 1].numpy()
+    pred_labels = np.argmax(logits, axis=1)
+
+    print("\n--- 正在生成出版级可视化图表 ---")
+
+    plot_roc_curve(true_labels, positive_class_probs, os.path.join(output_dir, 'sci_roc_curve.png'))
+    plot_pr_curve(true_labels, positive_class_probs, os.path.join(output_dir, 'sci_pr_curve.png'))
+    plot_confusion_matrix(true_labels, pred_labels, os.path.join(output_dir, 'sci_confusion_matrix.png'))
+    plot_calibration_curve(true_labels, positive_class_probs, os.path.join(output_dir, 'sci_calibration_curve.png'))
+    plot_probability_distribution(true_labels, positive_class_probs, os.path.join(output_dir, 'sci_probability_distribution.png'))
+
+    print("\n🎉 所有图表已成功生成！")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="为模型的交叉验证结果生成专业的、出版级的学术图表。")
+    parser.add_argument(
+        "--preds-dir",
+        type=str,
+        required=True,
+        help="包含所有 'fold_k_predictions.csv' 文件的目录 (例如 'results/final_run/clinical_preds')"
+    )
+    args = parser.parse_args()
+    generate_visualizations(args.preds_dir)-e 
+--- End of file: ./generate_publication_plots.py ---
+
+
+--- Start of file: ./nifti_to_png.py ---
+import os
+import nibabel as nib
+import numpy as np
+from PIL import Image
+
+import argparse
+
+parser = argparse.ArgumentParser(description="批量将NIfTI切片导出为PNG")
+parser.add_argument("input_folder", help="输入NIfTI文件夹")
+parser.add_argument("output_folder", help="输出PNG文件夹")
+parser.add_argument("--central-only", action="store_true", help="只导出中央一层（推荐）")
+args = parser.parse_args()
+
+os.makedirs(args.output_folder, exist_ok=True)
+
+for fname in os.listdir(args.input_folder):
+    if not fname.endswith('.nii.gz'):
+        continue
+    path = os.path.join(args.input_folder, fname)
+    img = nib.load(path)
+    data = img.get_fdata()
+    z_count = data.shape[2]
+    if args.central_only:
+        zs = [z_count // 2]
+    else:
+        zs = range(z_count)
+    for z in zs:
+        slice_img = data[:, :, z]
+        # 归一化到0-255
+        slice_img = (slice_img - slice_img.min()) / (slice_img.ptp() + 1e-8) * 255
+        slice_img = slice_img.astype(np.uint8)
+        outname = fname.replace('.nii.gz', f'_z{z}.png')
+        Image.fromarray(slice_img).save(os.path.join(args.output_folder, outname))
+        print(f"✅ {fname} (z={z}) → {outname}")
+
+print("全部NIfTI已导出为PNG。")
+-e 
+--- End of file: ./nifti_to_png.py ---
+
+
+--- Start of file: ./h5_to_png.py ---
+# scripts/h5_to_png.py
+import os
+import argparse
+import h5py
+import numpy as np
+from PIL import Image
+
+def h5_to_png(input_folder, output_folder, normalize=True, verbose=True):
+    if verbose:
+        print(f"🚀 Starting conversion from: {input_folder}")
+    os.makedirs(output_folder, exist_ok=True)
+
+    converted = 0
+    total = 0
+
+    for fname in sorted(os.listdir(input_folder)):
+        if not fname.endswith(".h5"):
+            continue
+        total += 1
+        path = os.path.join(input_folder, fname)
+        try:
+            with h5py.File(path, 'r') as f:
+                keys = list(f.keys())
+                if 'reconstruction' in f:
+                    arr = f['reconstruction'][()]
+                elif 'kspace' in f:
+                    k = f['kspace'][()]
+                    arr = np.abs(np.fft.ifft2(k))
+                else:
+                    print(f"❌ {fname} 中未找到 'reconstruction' 或 'kspace'，字段为：{keys}")
+                    continue
+
+            if arr.ndim == 3:
+                if verbose:
+                    print(f"📦 {fname} 是3D，提取第1个切片")
+                arr = arr[0]
+
+            if normalize:
+                arr = arr - arr.min()
+                arr = arr / (arr.max() + 1e-8)
+                arr = (arr * 255).astype(np.uint8)
+            else:
+                arr = arr.astype(np.uint8)
+
+            out_name = os.path.splitext(fname)[0] + ".png"
+            Image.fromarray(arr).save(os.path.join(output_folder, out_name))
+            if verbose:
+                print(f"✅ {fname} → {out_name}")
+            converted += 1
+
+        except Exception as e:
+            print(f"❗ 处理 {fname} 时出错: {e}")
+
+    if verbose:
+        print(f"🎯 完成处理：共 {converted} / {total} 个文件转换成功")
+    if converted == 0:
+        print("⚠️ 没有任何文件被成功转换，请检查路径、数据结构或内容")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input_folder", help="包含 .h5 文件的输入路径")
+    parser.add_argument("output_folder", help="保存 PNG 图像的输出路径")
+    parser.add_argument("--no-normalize", action="store_true", help="不对图像进行归一化")
+    parser.add_argument("--quiet", action="store_true", help="不打印详细日志")
+    args = parser.parse_args()
+
+    h5_to_png(
+        input_folder=args.input_folder,
+        output_folder=args.output_folder,
+        normalize=not args.no_normalize,
+        verbose=not args.quiet
+    )
+-e 
+--- End of file: ./h5_to_png.py ---
+
+
+--- Start of file: ./mri_subject_level_auc.py ---
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+mri_subject_level_auc.py
+
+针对每位受试者聚合切片特征，做受试者级 LOOCV/KFold，计算 AUC & 95% CI。
+
+用法示例：
+    python scripts/mri_subject_level_auc.py \
+      --data-dir /Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/data/mri_image_modified \
+      --n-splits 19 \
+      --n-bootstrap 2000 \
+      --batch-size 16 \
+      --seed 42
+"""
+
+import argparse, random, re
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import LeaveOneOut, StratifiedKFold
+from sklearn.linear_model import LogisticRegression
+
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
+from torch.utils.data import Dataset, DataLoader
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--data-dir",   type=str, required=True,
+                   help="MRI 图像根目录")
+    p.add_argument("--n-splits",   type=int, default=19,
+                   help="折数；留一法请设为受试者数")
+    p.add_argument("--n-bootstrap",type=int, default=2000,
+                   help="Bootstrap 次数")
+    p.add_argument("--batch-size", type=int, default=16,
+                   help="batch size")
+    p.add_argument("--seed",       type=int, default=42,
+                   help="随机种子")
+    p.add_argument("--device",     type=str,
+                   default="cuda" if torch.cuda.is_available() else "cpu")
+    return p.parse_args()
+
+
+class SliceDataset(Dataset):
+    """按切片加载并打标签，返回 (img, label, subject_id)"""
+    EXTS = {".png",".jpg",".jpeg"}
+    def __init__(self, root_dir, tf=None):
+        self.samples = []
+        for f in Path(root_dir).rglob("*"):
+            if f.suffix.lower() in self.EXTS:
+                # label by parent folder name
+                label = 1 if "AS" in f.parent.name.upper() else 0
+                # subject_id from filename
+                m = re.match(r"^(KNEE_\d+|SIJ_\d+)", f.stem)
+                sid = m.group(1) if m else re.sub(r"\s*\(.*\)$","",f.stem)
+                self.samples.append((str(f),label,sid))
+        assert self.samples, "没找到切片"
+        self.tf = tf
+
+    def __len__(self): return len(self.samples)
+    def __getitem__(self,i):
+        p,l,s = self.samples[i]
+        img = Image.open(p).convert("RGB")
+        if self.tf: img = self.tf(img)
+        return img, l, s
+
+
+class FeatureExtractor(nn.Module):
+    def __init__(self):
+        super().__init__()
+        resnet = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        self.backbone = nn.Sequential(*list(resnet.children())[:-1])
+    def forward(self,x):
+        f = self.backbone(x)
+        return f.view(f.size(0),-1)
+
+
+def set_seed(s):
+    random.seed(s); np.random.seed(s)
+    torch.manual_seed(s); torch.cuda.manual_seed_all(s)
+
+
+def bootstrap_ci(y,probs,n=2000,seed=42):
+    rng = np.random.RandomState(seed)
+    auc0 = roc_auc_score(y,probs)
+    boots=[]
+    for _ in range(n):
+        idx = rng.randint(0,len(y),len(y))
+        if len(np.unique(y[idx]))<2: continue
+        boots.append(roc_auc_score(y[idx],probs[idx]))
+    low,high = np.percentile(boots,[2.5,97.5])
+    return auc0,low,high
+
+
+def main():
+    args = parse_args()
+    set_seed(args.seed)
+    device = torch.device(args.device)
+
+    # transforms
+    tf = transforms.Compose([
+        transforms.Resize((224,224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
+    ])
+    ds = SliceDataset(args.data_dir, tf)
+    loader = DataLoader(ds,batch_size=args.batch_size,shuffle=False, num_workers=4)
+
+    # extract slice-level features
+    ext = FeatureExtractor().to(device).eval()
+    feats, labels, sids = [],[],[]
+    with torch.no_grad():
+        for imgs, labs, subj in tqdm(loader, desc="FeatExt"):
+            imgs = imgs.to(device)
+            f = ext(imgs).cpu().numpy()
+            feats.append(f)
+            labels.extend(labs.tolist())
+            sids.extend(subj)
+    X = np.vstack(feats); y = np.array(labels)
+
+    # aggregate to subject-level
+    subj_feats, subj_labels = {}, {}
+    for feat,lab,sid in zip(X,y,sids):
+        subj_feats.setdefault(sid,[]).append(feat)
+        subj_labels[sid] = lab
+    subj_ids = list(subj_feats)
+    Xs = np.vstack([np.mean(subj_feats[s],axis=0) for s in subj_ids])
+    ys = np.array([subj_labels[s] for s in subj_ids])
+
+    # choose CV
+    if args.n_splits==len(subj_ids):
+        cv = LeaveOneOut()
+    else:
+        cv = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
+
+    y_true,y_score = [],[]
+    for tr,va in cv.split(Xs, ys):
+        clf = LogisticRegression(solver="liblinear", random_state=args.seed)
+        clf.fit(Xs[tr], ys[tr])
+        probs = clf.predict_proba(Xs[va])[:,1]
+        y_true.extend(ys[va].tolist())
+        y_score.extend(probs.tolist())
+
+    y_true = np.array(y_true); y_score = np.array(y_score)
+    auc0,low,high = bootstrap_ci(y_true,y_score,n=args.n_bootstrap,seed=args.seed)
+    print(f"\nSubject-level AUC: {auc0:.3f} 95% CI: [{low:.3f},{high:.3f}]\n")
+
+
+if __name__=="__main__":
+    main()
+-e 
+--- End of file: ./mri_subject_level_auc.py ---
+
+
+--- Start of file: ./plot_tsne_sci.py ---
+import numpy as np
+import matplotlib.pyplot as plt
+
+NPZ_PATH = "/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/outputs_sij_all/as_mri_feats.npz"
+FIG_PNG = "/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/outputs_sij_all/as_mri_tsne_sci.png"
+FIG_PDF = "/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/outputs_sij_all/as_mri_tsne_sci.pdf"
+
+data = np.load(NPZ_PATH, allow_pickle=True)
+tsne = data["embedding"]
+patient_ids = data["patient_ids"]
+
+unique_ids = np.unique(patient_ids)
+colors = plt.cm.get_cmap('tab10', len(unique_ids))
+
+fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
+for idx, pid in enumerate(unique_ids):
+    mask = (patient_ids == pid)
+    ax.scatter(
+        tsne[mask, 0], tsne[mask, 1],
+        label=f'Patient {pid}',
+        s=50, alpha=0.9, linewidths=0.6, edgecolor='k',
+        marker='o', c=[colors(idx)]
+    )
+
+ax.set_title("Figure 1. t-SNE Visualization of MRI Feature Embeddings in Ankylosing Spondylitis Patients",
+             fontsize=16, weight='bold', pad=15)
+ax.set_xlabel("t-SNE Component 1", fontsize=14, weight='bold', labelpad=10)
+ax.set_ylabel("t-SNE Component 2", fontsize=14, weight='bold', labelpad=10)
+ax.tick_params(axis='both', which='major', labelsize=12)
+ax.legend(title='Patient ID', loc='best', fontsize=11, title_fontsize=12, frameon=True)
+
+plt.tight_layout()
+fig.savefig(FIG_PNG)
+fig.savefig(FIG_PDF)
+print(f"✅ High-resolution t-SNE plot saved as PNG: {FIG_PNG}")
+print(f"✅ High-resolution t-SNE plot saved as PDF: {FIG_PDF}")
+-e 
+--- End of file: ./plot_tsne_sci.py ---
+
+
+--- Start of file: ./mri_permutation_test_full.py ---
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+mri_permutation_test_full.py
+
+自包含 MRI 置换检验脚本：
+- 提取每位受试者的聚合特征
+- 计算 LOOCV AUC
+- 做 n_perm 次标签置换检验，报告 p-value
+
+用法示例：
+  chmod +x scripts/mri_permutation_test_full.py
+  python scripts/mri_permutation_test_full.py \
+    --data-dir /Users/hydra/.../data/mri_image_modified \
+    --n-perm 1000 \
+    --batch-size 16 \
+    --seed 42 \
+    --device cpu
+"""
+
+import argparse, random, re
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import LeaveOneOut
+from sklearn.linear_model import LogisticRegression
+
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
+from torch.utils.data import Dataset, DataLoader
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="MRI subject-level permutation test")
+    p.add_argument("--data-dir",   type=str, required=True,
+                   help="根目录，递归扫描所有子文件夹下的图像")
+    p.add_argument("--n-perm",     type=int, default=1000,
+                   help="置换次数 (默认 1000)")
+    p.add_argument("--batch-size", type=int, default=16,
+                   help="切片特征 batch size")
+    p.add_argument("--seed",       type=int, default=42,
+                   help="随机种子")
+    p.add_argument("--device",     type=str,
+                   default="cuda" if torch.cuda.is_available() else "cpu",
+                   help="运行设备")
+    return p.parse_args()
+
+
+class SliceDataset(Dataset):
+    EXTS = {".png", ".jpg", ".jpeg"}
+
+    def __init__(self, root_dir, tf=None):
+        self.samples = []
+        for f in Path(root_dir).rglob("*"):
+            if f.suffix.lower() in self.EXTS:
+                label = 1 if "AS" in f.parent.name.upper() else 0
+                m = re.match(r"^(KNEE_\d+|SIJ_\d+)", f.stem)
+                sid = m.group(1) if m else re.sub(r"\s*\(.*\)$", "", f.stem)
+                self.samples.append((str(f), label, sid))
+        if not self.samples:
+            raise RuntimeError(f"No images in {root_dir}")
+        self.tf = tf
+
+    def __len__(self): return len(self.samples)
+    def __getitem__(self, idx):
+        path, label, sid = self.samples[idx]
+        img = Image.open(path).convert("RGB")
+        if self.tf: img = self.tf(img)
+        return img, label, sid
+
+
+class FeatureExtractor(nn.Module):
+    def __init__(self):
+        super().__init__()
+        resnet = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        self.backbone = nn.Sequential(*list(resnet.children())[:-1])
+    def forward(self, x):
+        f = self.backbone(x)
+        return f.view(f.size(0), -1)
+
+
+def set_seed(s):
+    random.seed(s)
+    np.random.seed(s)
+    torch.manual_seed(s)
+    torch.cuda.manual_seed_all(s)
+
+
+def compute_loocv_auc(X, y):
+    loo = LeaveOneOut()
+    preds, trues = [], []
+    for tr, va in loo.split(X):
+        clf = LogisticRegression(solver="liblinear", random_state=0)
+        clf.fit(X[tr], y[tr])
+        p = clf.predict_proba(X[va])[:,1][0]
+        preds.append(p)
+        trues.append(y[va][0])
+    return roc_auc_score(trues, preds)
+
+
+def main():
+    args = parse_args()
+    set_seed(args.seed)
+    device = torch.device(args.device)
+    print(f"[INFO] Device: {device}")
+
+    tf = transforms.Compose([
+        transforms.Resize((224,224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
+    ])
+    ds = SliceDataset(args.data_dir, tf)
+    loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+
+    ext = FeatureExtractor().to(device).eval()
+    feats, labels, sids = [], [], []
+    with torch.no_grad():
+        for imgs, labs, subjects in tqdm(loader, desc="FeatExt"):
+            imgs = imgs.to(device)
+            f = ext(imgs).cpu().numpy()
+            feats.append(f)
+            labels.extend(labs)
+            sids.extend(subjects)
+    X_slice = np.vstack(feats); y_slice = np.array(labels)
+
+    # 聚合到受试者级
+    subj_feats, subj_lab = {}, {}
+    for feat, lab, sid in zip(X_slice, y_slice, sids):
+        subj_feats.setdefault(sid, []).append(feat)
+        subj_lab[sid] = lab
+    subj_ids = list(subj_feats)
+    X = np.vstack([np.mean(subj_feats[s], axis=0) for s in subj_ids])
+    y = np.array([subj_lab[s] for s in subj_ids])
+    print(f"[INFO] Subjects: {len(y)}, Pos: {y.sum()}, Neg: {len(y)-y.sum()}")
+
+    obs_auc = compute_loocv_auc(X, y)
+    print(f"\n[RESULT] Observed LOOCV AUC = {obs_auc:.3f}")
+
+    # 置换检验
+    perm_aucs = []
+    rng = np.random.RandomState(args.seed)
+    for i in range(args.n_perm):
+        y_perm = rng.permutation(y)
+        perm_aucs.append(compute_loocv_auc(X, y_perm))
+        if (i+1) % 100 == 0:
+            print(f"[INFO] Permutations {i+1}/{args.n_perm}")
+    perm_aucs = np.array(perm_aucs)
+    pval = (perm_aucs >= obs_auc).sum() / args.n_perm
+    print(f"\n[RESULT] Permutation p-value = {pval:.4f}")
+
+if __name__ == "__main__":
+    main()
+-e 
+--- End of file: ./mri_permutation_test_full.py ---
+
+
+--- Start of file: ./preprocess_clinical.py ---
+import pandas as pd
+import numpy as np
+import argparse
+import os
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import StratifiedKFold
+from imblearn.over_sampling import SMOTE
+from sklearn.pipeline import Pipeline
+
+# --- This is the definitive, all-in-one preprocessing script (v12) ---
+print("✅✅✅ Running the Definitive All-in-One Preprocessor (v12) ✅✅✅")
+
+def create_preprocessor(numeric_features, categorical_features):
+    """Creates a preprocessor for different feature types."""
+    numeric_transformer = Pipeline(steps=[
+        ("imputer", SimpleImputer(strategy="mean")), ("scaler", StandardScaler())
+    ])
+    categorical_transformer = Pipeline(steps=[
+        ("imputer", SimpleImputer(strategy="most_frequent")),
+        ("onehot", OneHotEncoder(handle_unknown="ignore")),
+    ])
+    return ColumnTransformer(transformers=[
+        ("num", numeric_transformer, numeric_features),
+        ("cat", categorical_transformer, categorical_features),
+    ], remainder="passthrough")
+
+def run_all_preprocessing(input_csv, output_dir, n_splits=5, target_disease='Ankylosing Spondylitis'):
+    """Main function: Loads RAW data, cleans, balances, and processes it safely for CV."""
+    print(f"📥 Reading clean, raw data from: {input_csv}")
+    try:
+        df = pd.read_csv(input_csv)
+    except Exception as e:
+        print(f"❌ An unexpected error occurred while reading the file: {e}")
+        return
+        
+    print("✅ Raw data read successfully.")
+    
+    # --- Data Cleaning and Feature Engineering ---
+    df.columns = df.columns.str.strip().str.replace(' ', '_')
+    
+    id_column = "Patient_ID"
+    if id_column not in df.columns:
+        df[id_column] = range(len(df))
+        print(f"✨ Created a new '{id_column}' column.")
+
+    label_column = "label"
+    target_disease_col_name = 'Disease'
+    df[label_column] = (df[target_disease_col_name] == target_disease).astype(int)
+    print(f"🎯 Created binary '{label_column}' column for target: '{target_disease}'")
+
+    # --- Balance the Dataset ---
+    df_positive = df[df[label_column] == 1]
+    df_negative = df[df[label_column] == 0].sample(n=len(df_positive), random_state=42)
+    df_balanced = pd.concat([df_positive, df_negative]).sample(frac=1, random_state=42).reset_index(drop=True)
+    print(f"⚖️  Data balanced. Total samples: {len(df_balanced)}.")
+
+    # --- Define Final Features (X) and Target (y) ---
+    # CORE FIX: We define X and y from the SAME balanced dataframe
+    y = df_balanced[label_column]
+    patient_ids = df_balanced[id_column]
+    
+    print(f"🔥 Removing non-feature columns to create the final feature set 'X'.")
+    X = df_balanced.drop(columns=[label_column, id_column, target_disease_col_name], errors='ignore')
+
+    # --- Proceed with the trusted cross-validation pipeline ---
+    os.makedirs(output_dir, exist_ok=True)
+    
+    numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+    categorical_features = X.select_dtypes(exclude=np.number).columns.tolist()
+    
+    kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    print(f"\n--- Starting {n_splits}-fold cross-validation data preparation ---")
+
+    for fold, (train_idx, val_idx) in enumerate(kf.split(X, y)):
+        print(f"\n⚙️  Processing Fold {fold}...")
+        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+        val_ids = patient_ids.iloc[val_idx]
+
+        preprocessor = create_preprocessor(numeric_features, categorical_features)
+        preprocessor.fit(X_train)
+
+        try:
+            ohe_names = preprocessor.named_transformers_["cat"]["onehot"].get_feature_names_out(categorical_features)
+            new_feature_names = numeric_features + ohe_names.tolist()
+        except:
+            new_feature_names = list(X.columns)
+
+        X_train_processed = preprocessor.transform(X_train)
+        X_val_processed = preprocessor.transform(X_val)
+
+        smote = SMOTE(random_state=42)
+        X_train_resampled, y_train_resampled = smote.fit_resample(X_train_processed, y_train)
+        
+        df_train_final = pd.DataFrame(X_train_resampled, columns=new_feature_names)
+        df_train_final[label_column] = y_train_resampled
+
+        df_val_final = pd.DataFrame(X_val_processed, columns=new_feature_names)
+        df_val_final[label_column] = y_val.values
+        df_val_final.insert(0, id_column, val_ids.values)
+
+        train_path = os.path.join(output_dir, f"fold_{fold}_train.csv")
+        val_path = os.path.join(output_dir, f"fold_{fold}_val.csv")
+        df_train_final.to_csv(train_path, index=False)
+        df_val_final.to_csv(val_path, index=False)
+        print(f"  ✅ Fold {fold} data saved.")
+
+    print("\n🎉 All preprocessing is complete!")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="The definitive script for preprocessing the clinical data.")
+    parser.add_argument("input_csv", help="Path to the ORIGINAL RAW data CSV file.")
+    parser.add_argument("output_dir", help="Directory to save the processed fold data.")
+    args = parser.parse_args()
+    run_all_preprocessing(args.input_csv, args.output_dir)-e 
+--- End of file: ./preprocess_clinical.py ---
+
+
+--- Start of file: ./linear_probe_sij.py ---
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+linear_probe_sij.py
+
+Use ImageNet-pretrained ResNet-18 features + Linear Probe on SIJ MRI (6 AS vs 2 Healthy)
+with LOOCV AUC and permutation test. No extra pretraining needed.
+"""
+
+import os, argparse
+import numpy as np
+from PIL import Image
+from tqdm import tqdm
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import LeaveOneOut
+from sklearn.metrics import roc_auc_score
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument('--sij-as-dir',      required=True, help='AS SIJ images (jpg/png)')
+    p.add_argument('--sij-healthy-dir', action='append', required=True,
+                   help='Healthy SIJ images (jpg/png), can repeat')
+    p.add_argument('--n-perm', type=int, default=5000, help='Permutations for p-value')
+    p.add_argument('--device', default='cpu', help='cpu or cuda')
+    return p.parse_args()
+
+def extract_resnet_features(paths, model, transform, device):
+    feats = []
+    model.eval()
+    with torch.no_grad():
+        for p in tqdm(paths, desc='Extracting features'):
+            img = Image.open(p).convert('RGB')
+            x = transform(img).unsqueeze(0).to(device)
+            f = model(x).view(-1).cpu().numpy()
+            feats.append(f)
+    return np.stack(feats, axis=0)
+
+def main():
+    args = parse_args()
+    device = torch.device(args.device)
+
+    # 1) 构建 ResNet-18 特征提取器
+    resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+    resnet.fc = nn.Identity()
+    resnet.to(device)
+
+    # 2) 收集 SIJ 图像路径和标签
+    paths, labels = [], []
+    # AS -> 1
+    for root,_,fs in os.walk(args.sij_as_dir):
+        for fn in fs:
+            if fn.lower().endswith(('.jpg','.png')):
+                paths.append(os.path.join(root, fn)); labels.append(1)
+    # Healthy -> 0
+    for hd in args.sij_healthy_dir:
+        for root,_,fs in os.walk(hd):
+            for fn in fs:
+                if fn.lower().endswith(('.jpg','.png')):
+                    paths.append(os.path.join(root, fn)); labels.append(0)
+    y = np.array(labels)
+
+    # 3) 特征提取
+    transform = transforms.Compose([
+        transforms.Resize((224,224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
+    ])
+    X = extract_resnet_features(paths, resnet, transform, device)
+
+    # 4) LOOCV + AUC
+    loo = LeaveOneOut()
+    preds, trues = [], []
+    for train_idx, test_idx in loo.split(X):
+        clf = LogisticRegression(max_iter=1000).fit(X[train_idx], y[train_idx])
+        p = clf.predict_proba(X[test_idx])[:,1][0]
+        preds.append(p); trues.append(y[test_idx][0])
+    auc = roc_auc_score(trues, preds)
+    print(f'LOOCV AUC = {auc:.3f}')
+
+    # 5) 置换检验
+    obs_delta = np.mean([p for p,l in zip(preds,y) if l==1]) \
+              - np.mean([p for p,l in zip(preds,y) if l==0])
+    count = 0
+    for _ in range(args.n_perm):
+        yp = np.random.permutation(y)
+        delta = np.mean([p for p,l in zip(preds,yp) if l==1]) \
+              - np.mean([p for p,l in zip(preds,yp) if l==0])
+        if delta >= obs_delta: 
+            count += 1
+    pval = (count+1)/(args.n_perm+1)
+    print(f'Permutation p-value = {pval:.4f}')
+
+if __name__ == '__main__':
+    main()-e 
+--- End of file: ./linear_probe_sij.py ---
+
+
+--- Start of file: ./create_balanced_data.py ---
+import pandas as pd
+import argparse
+import os
+
+# --- This is the definitive script that reads the file as an Excel file ---
+print("✅✅✅ Running the Definitive Excel Reader Script (v10) ✅✅✅")
+
+def create_balanced_dataset(input_path, output_path):
+    """
+    Reads the file correctly as an Excel file and creates a clean, balanced dataset.
+    """
+    print(f"📥 Reading Excel file: {input_path}")
+    try:
+        # --- CORE FIX: Use pd.read_excel() to correctly read the .xlsx file ---
+        # We also specify 'Sheet1' which is the default sheet name.
+        df = pd.read_excel(input_path, sheet_name='Sheet1', engine='openpyxl')
+        
+    except FileNotFoundError:
+        print(f"❌ ERROR: Raw data file not found at '{input_path}'!")
+        return
+    except Exception as e:
+        print(f"❌ An unexpected error occurred while reading the Excel file: {e}")
+        return
+
+    print("✅ Excel file read successfully! Now cleaning and balancing the data.")
+
+    # Standardize column names
+    df.columns = df.columns.str.strip().str.replace(' ', '_')
+
+    # Define the target variable
+    target_disease_col = 'Disease'
+    target_disease_name = 'Ankylosing_Spondylitis'
+    label_col = 'label'
+
+    if target_disease_col not in df.columns:
+        print(f"❌ ERROR: Cannot find the '{target_disease_col}' column in the data.")
+        print(f"   Available columns are: {df.columns.tolist()}")
+        return
+
+    print(f"🎯 Creating binary label...")
+    df[label_col] = (df[target_disease_col] == target_disease_name).astype(int)
+
+    # Balance the dataset
+    df_positive = df[df[label_col] == 1]
+    df_negative = df[df[label_col] == 0].sample(n=len(df_positive), random_state=42)
+    df_balanced = pd.concat([df_positive, df_negative]).sample(frac=1, random_state=42).reset_index(drop=True)
+
+    # Define final columns, explicitly dropping the original 'Disease' column
+    final_columns = [col for col in df.columns if col != target_disease_col]
+    df_final = df_balanced[final_columns]
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    df_final.to_csv(output_path, index=False)
+    print(f"⚖️ Data balancing complete!")
+    print(f"✅ Successfully created a new, clean, balanced dataset: {output_path}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Create a clean, balanced dataset from the raw source file.")
+    parser.add_argument(
+        "--input",
+        default="data/raw_data.csv", # Keep this as is, we know it's an Excel file in disguise
+        help="Path to the original raw data file."
+    )
+    parser.add_argument(
+        "--output",
+        default="data/balanced_clinical.csv",
+        help="Path for the clean, balanced output file."
+    )
+    args = parser.parse_args()
+    create_balanced_dataset(args.input, args.output)-e 
+--- End of file: ./create_balanced_data.py ---
+
+
+--- Start of file: ./prepare_finetune_data_final.py ---
+#!/usr/bin/env python3
+# 文件: scripts/prepare_finetune_data_final.py
+
+import os
+import re
+import argparse
+import SimpleITK as sitk
+import numpy as np
+from PIL import Image
+from pathlib import Path
+from tqdm import tqdm
+
+
+def ensure_dir(path):
+    os.makedirs(path, exist_ok=True)
+
+
+def process_and_save_slices(image_3d, output_folder, base_filename, axis=2):
+    """
+    通用函数：将SimpleITK的3D影像切片并保存为PNG。
+    """
+    image_np = sitk.GetArrayFromImage(image_3d)  # z, y, x
+    num = image_np.shape[axis]
+
+    for i in tqdm(range(num), desc=f"Slicing {base_filename}", leave=False):
+        if axis == 0:
+            sl = image_np[i, :, :]
+        elif axis == 1:
+            sl = image_np[:, i, :]
+        else:
+            sl = image_np[:, :, i]
+
+        mn, mx = sl.min(), sl.max()
+        if mx > mn:
+            u8 = ((sl - mn) / (mx - mn) * 255).astype(np.uint8)
+        else:
+            u8 = np.zeros_like(sl, dtype=np.uint8)
+
+        img = Image.fromarray(u8).convert("RGB")
+        fname = f"{base_filename}_slice_{i:03d}.png"
+        img.save(os.path.join(output_folder, fname))
+
+
+def raw_to_png(raw_path: Path, output_folder: str):
+    """
+    将 .raw 体数据转中间层 PNG。
+    文件名格式示例：SIJ_1_400_400_18_2_.raw
+    """
+    m = re.match(r".*_(\d+)_(\d+)_(\d+)_(\d+)_\.raw$", raw_path.name)
+    if not m:
+        print(f"    ↳ 跳过（文件名不匹配）: {raw_path.name}")
+        return
+    W, H, D, B = map(int, m.groups())
+    dtype = np.uint16 if B == 2 else np.uint8
+    data = np.fromfile(str(raw_path), dtype=dtype)
+    try:
+        data = data.reshape((D, H, W))
+    except ValueError:
+        print(f"    ↳ 跳过（尺寸不符）: {raw_path.name}")
+        return
+
+    mid = D // 2
+    sl = data[mid, :, :]
+    mn, mx = sl.min(), sl.max()
+    if mx > mn:
+        u8 = ((sl - mn) / (mx - mn) * 255).astype(np.uint8)
+    else:
+        u8 = np.zeros_like(sl, dtype=np.uint8)
+
+    img = Image.fromarray(u8).convert("RGB")
+    out_name = raw_path.stem + ".png"
+    img.save(os.path.join(output_folder, out_name))
+    print(f"    ↳ Saved RAW→PNG: {out_name}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Prepare AS MRI finetune data.")
+    parser.add_argument("--healthy_dir", required=True, help="Healthy NIfTI source dir")
+    parser.add_argument("--knee_dir", required=True, help="Knee joint raw dir")
+    parser.add_argument("--sacro_dir", required=True, help="Sacroiliac joint raw dir")
+    parser.add_argument(
+        "--out_dir", default="AS_Finetune_Data", help="Output directory"
+    )
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    healthy_source_dir = args.healthy_dir
+    knee_post_dir = args.knee_dir
+    sacro_dir = args.sacro_dir
+    output_dir = args.out_dir
+
+    healthy_out = os.path.join(output_dir, "0_Healthy")
+    as_out = os.path.join(output_dir, "1_AS")
+    ensure_dir(healthy_out)
+    ensure_dir(as_out)
+
+    print("▶ 开始准备影像数据切片...\n")
+
+    # 1) 健康组：NIfTI → PNG
+    print(f"处理健康组 NIfTI 目录：{healthy_source_dir}")
+    if os.path.isdir(healthy_source_dir):
+        for sub in sorted(os.listdir(healthy_source_dir)):
+            subdir = os.path.join(healthy_source_dir, sub)
+            if not os.path.isdir(subdir):
+                continue
+            for root, _, files in os.walk(subdir):
+                for f in files:
+                    if f.endswith((".nii", ".nii.gz")):
+                        path = os.path.join(root, f)
+                        print(f"  - {sub}: {path}")
+                        try:
+                            img3d = sitk.ReadImage(path)
+                            process_and_save_slices(img3d, healthy_out, sub)
+                        except Exception as e:
+                            print(f"    ↳ 错误读取: {path} → {e}")
+                        break
+                break
+    else:
+        print("⚠️ 健康组路径不存在！")
+
+    # 2) AS组：膝关节 + 骶髂关节
+    print(f"\n处理 AS 组：膝关节 Postcontrast (.raw) + 骶髂关节 (.raw)")
+
+    # 膝关节
+    if os.path.isdir(knee_post_dir):
+        print(f"  • 膝关节 Postcontrast 目录: {knee_post_dir}")
+        for f in sorted(os.listdir(knee_post_dir)):
+            if f.lower().endswith(".raw"):
+                raw_to_png(Path(knee_post_dir) / f, as_out)
+    else:
+        print("⚠️ 膝关节 Postcontrast 路径不存在！")
+
+    # 骶髂关节
+    if os.path.isdir(sacro_dir):
+        print(f"  • 骶髂关节目录: {sacro_dir}")
+        for f in sorted(os.listdir(sacro_dir)):
+            if f.lower().endswith(".raw"):
+                raw_to_png(Path(sacro_dir) / f, as_out)
+    else:
+        print("⚠️ 骶髂关节路径不存在！")
+
+    print("\n✅ 全部切片完成！")
+    print(f"输出统计:")
+    print(f"  Healthy PNG 数量: {len(os.listdir(healthy_out))}")
+    print(f"  AS      PNG 数量: {len(os.listdir(as_out))}")
+    print(f"\n请确认 `{output_dir}` 下已有正确的二分类目录结构。")
+
+
+if __name__ == "__main__":
+    main()
+-e 
+--- End of file: ./prepare_finetune_data_final.py ---
+
+
+--- Start of file: ./plot_gradcam_academic.py ---
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+run_sij_gradcam_analysis.py
+
+Leave-One-Subject-Out + Grad-CAM 可解释分析脚本
+(6 vs 2 小样本，用少量增强+Fine-tune，观测模型关注区域并输出期刊级可视化三联图)
+"""
+import os, sys, random
+import numpy as np
+import torch
+import torch.nn as nn
+import torchvision.models as models
+import torchvision.transforms as transforms
+from PIL import Image
+import matplotlib.pyplot as plt
+import cv2
+from tqdm import tqdm
+
+# ————————————————————————————————————————————— #
+# 1) 配置：项目根目录、数据路径、输出目录、随机种子、轻度增强
+# ————————————————————————————————————————————— #
+# project_root 指向 FINAL_AS 根目录
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+# 健康组 & AS 组目录
+data_dirs = {
+    "Healthy": [
+        os.path.join(project_root, "data", "mri_health", "health1"),
+        os.path.join(project_root, "data", "mri_health", "health2"),
+    ],
+    "AS": [
+        os.path.join(project_root, "data", "mri_AS"),
+    ],
+}
+# 输出目录
+output_dir = os.path.join(project_root, "results", "grad_cam_outputs")
+os.makedirs(output_dir, exist_ok=True)
+#print(f"Grad-CAM outputs will be saved to: {output_dir}")
+
+# 随机种子
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+
+# 轻度数据增强：±5°旋转 + 随机裁剪 + 色彩微调
+train_transform = transforms.Compose([
+    transforms.Resize((224,224)),
+    transforms.RandomRotation(5),
+    transforms.RandomResizedCrop(224, scale=(0.9,1.0)),
+    transforms.ColorJitter(brightness=0.1, contrast=0.1),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
+])
+# 推理/Grad-CAM 时仅 resize+normalize
+eval_transform = transforms.Compose([
+    transforms.Resize((224,224)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
+])
+
+# ————————————————————————————————————————————— #
+# 2) Grad-CAM 类
+# ————————————————————————————————————————————— #
+class GradCAM:
+    def __init__(self, model, target_layer):
+        self.model = model.eval()
+        self.grad = None
+        self.act = None
+        # 注册钩子
+        target_layer.register_forward_hook(lambda m,i,o: setattr(self, 'act', o))
+        target_layer.register_full_backward_hook(lambda m,gi,go: setattr(self, 'grad', go[0]))
+
+    def __call__(self, x, cls_idx):
+        out = self.model(x)
+        self.model.zero_grad()
+        out[0, cls_idx].backward(retain_graph=True)
+        g = self.grad[0]   # [C,H,W]
+        a = self.act[0]    # [C,H,W]
+        w = g.mean(dim=(1,2), keepdim=True)  # [C,1,1]
+        cam = (w * a).sum(dim=0).detach().cpu().numpy()
+        cam = np.maximum(cam, 0)
+        cam = cv2.resize(cam, (x.shape[3], x.shape[2]))
+        cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+        return cam
+
+# ————————————————————————————————————————————— #
+# 3) 收集所有图像样本
+# ————————————————————————————————————————————— #
+all_images = []
+for label, cls_key in enumerate(['Healthy','AS']):
+    for root in data_dirs[cls_key]:
+        if not os.path.isdir(root):
+            print(f"Error: Directory not found: {root}", file=sys.stderr)
+            sys.exit(1)
+        for subj in os.listdir(root):
+            subdir = os.path.join(root, subj)
+            if not os.path.isdir(subdir):
+                continue
+            for fn in os.listdir(subdir):
+                if fn.lower().endswith(('.jpg','.jpeg','.png')):
+                    all_images.append({
+                        'path': os.path.join(subdir, fn),
+                        'subject': subj,
+                        'label': label,
+                        'cls': cls_key
+                    })
+# 检查
+if not all_images:
+    print("No images found in data directories.", file=sys.stderr)
+    sys.exit(1)
+
+# ————————————————————————————————————————————— #
+# 4) 初始化模型 & 目标层
+# ————————————————————————————————————————————— #
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+# 替换最后分类层为2类输出
+model.fc = nn.Linear(model.fc.in_features, 2)
+model.to(device)
+target_layer = model.layer4[-1]
+
+# ————————————————————————————————————————————— #
+# 5) 留一法 Fine-tune + Grad-CAM 输出期刊级三联图
+# ————————————————————————————————————————————— #
+print(f"🔍 Loaded {len(all_images)} image slices across {len(set(i['subject'] for i in all_images))} subjects.")
+subjects = sorted(set(i['subject'] for i in all_images))
+for subj in tqdm(subjects, desc='Subject LOOCV'):
+    # 划分训练/测试
+    train_set = [i for i in all_images if i['subject'] != subj]
+    test_set = [i for i in all_images if i['subject'] == subj]
+    # Fine-tune 模型
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    criterion = nn.CrossEntropyLoss()
+    model.train()
+    for epoch in range(3):
+        random.shuffle(train_set)
+        for item in train_set:
+            img = Image.open(item['path']).convert('RGB')
+            inp = train_transform(img).unsqueeze(0).to(device)
+            lbl = torch.tensor([item['label']], device=device)
+            optimizer.zero_grad()
+            out = model(inp)
+            loss = criterion(out, lbl)
+            loss.backward()
+            optimizer.step()
+    # 生成 Grad-CAM 并可视化
+    model.eval()
+    camer = GradCAM(model, target_layer)
+    for item in test_set:
+        original_img = Image.open(item['path']).convert('RGB')
+        inp = eval_transform(original_img).unsqueeze(0).to(device)
+        out = model(inp)
+        cls_pred = out.argmax(dim=1).item()
+        heatmap = camer(inp, cls_pred)
+        # 专业可视化三联
+        ori_gray = np.array(original_img.resize((224,224)))
+        # 三联subplot
+        fig, (ax0, ax1, ax2) = plt.subplots(1,3, figsize=(12,4))
+        ax0.imshow(ori_gray, cmap='gray')
+        ax0.set_title('Original')
+        ax0.axis('off')
+        im1 = ax1.imshow(heatmap, cmap='jet', vmin=0, vmax=1)
+        ax1.set_title('Grad-CAM')
+        ax1.axis('off')
+        ax2.imshow(ori_gray, cmap='gray')
+        ax2.imshow(cv2.applyColorMap(np.uint8(heatmap*255), cv2.COLORMAP_JET), alpha=0.5)
+        ax2.set_title('Overlay')
+        ax2.axis('off')
+        # colorbar
+        cbar = fig.colorbar(im1, ax=[ax0,ax1,ax2], location='right', fraction=0.046, pad=0.04)
+        cbar.set_label('Activation', rotation=270, labelpad=15)
+        fig.suptitle(f"Subject: {item['subject']} | Class: {item['cls']}", fontsize=16)
+        out_name = f"{item['subject']}_{os.path.basename(item['path']).split('.')[0]}_academic.png"
+        fig.savefig(os.path.join(output_dir, out_name), dpi=300, bbox_inches='tight', pad_inches=0.1)
+        plt.close(fig)
+print("✅ Grad-CAM analysis complete. Results saved in:", output_dir)-e 
+--- End of file: ./plot_gradcam_academic.py ---
+
+
+--- Start of file: ./generate_dummy_nifti.py ---
+import numpy as np
+import nibabel as nib
+import os
+
+
+def generate_dummy_nifti(output_path):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    # 创建一个 3D 数据立方体（带简单结构）
+    data = np.zeros((160, 160, 160))
+    data[40:120, 40:120, 40:120] = 100  # 一个亮的立方体区域
+
+    affine = np.eye(4)  # 标准 affine
+    nifti_img = nib.Nifti1Image(data, affine)
+    nib.save(nifti_img, output_path)
+    print(f"✅ 模拟 NIfTI 已生成: {output_path}")
+
+
+if __name__ == "__main__":
+    generate_dummy_nifti("nifti_output/fake_mri.nii.gz")
+-e 
+--- End of file: ./generate_dummy_nifti.py ---
+
+
+--- Start of file: ./add_patient_ids.py ---
+# scripts/add_patient_ids.py
+# -*- coding: utf-8 -*-
+"""
+修复工具：为已经生成的 a-fold 预测CSV文件添加 'patient_id' 列。
+
+工作原理:
+1. 遍历指定的预测目录 (e.g., 'models/clinical_model/clinical_preds/')。
+2. 对于目录中的每一个 'fold_k_predictions.csv' 文件：
+   a. 读取对应的 'splits/fold_k.txt' 文件来获取患者ID列表。
+   b. 读取预测CSV文件。
+   c. 检查两者的行数是否匹配，这是一个重要的安全检查。
+   d. 将患者ID列表作为新的一列 ('patient_id') 添加到预测数据中。
+   e. 覆盖保存原有的CSV文件。
+"""
+import pandas as pd
+import argparse
+from pathlib import Path
+
+
+def add_ids_to_predictions(preds_dir: str, splits_dir: str):
+    """
+    主函数，执行添加ID并保存的逻辑。
+
+    Args:
+        preds_dir (str): 存放 fold_k_predictions.csv 的目录。
+        splits_dir (str): 存放 fold_k.txt 的目录。
+    """
+    preds_path = Path(preds_dir)
+    splits_path = Path(splits_dir)
+
+    print(f"\n--- 正在处理目录: {preds_path} ---")
+
+    # 查找所有 fold_k_predictions.csv 文件
+    pred_files = sorted(list(preds_path.glob("fold_*_predictions.csv")))
+
+    if not pred_files:
+        print(f"⚠️ 警告: 在 {preds_path} 中没有找到任何 'fold_*_predictions.csv' 文件。")
+        return
+
+    for pred_file in pred_files:
+        try:
+            # 从文件名中提取 fold 编号
+            fold_num_str = pred_file.stem.split("_")[1]
+
+            # 构建对应的split文件路径
+            split_file = splits_path / f"fold_{fold_num_str}.txt"
+
+            if not split_file.exists():
+                print(f"❌ 错误: 找不到对应的 split 文件: {split_file}")
+                continue
+
+            # 1. 读取患者ID
+            with open(split_file, "r") as f:
+                patient_ids = [line.strip() for line in f.readlines()]
+
+            # 2. 读取预测CSV
+            df_preds = pd.read_csv(pred_file)
+
+            # 3. 安全检查：行数是否一致
+            if len(patient_ids) != len(df_preds):
+                print(
+                    f"❌ 错误: 行数不匹配! Split文件 '{split_file.name}' 有 {len(patient_ids)} 个ID, "
+                    f"但预测文件 '{pred_file.name}' 有 {len(df_preds)} 行。"
+                )
+                continue
+
+            # 4. 添加 'patient_id' 列
+            # 我们把ID放在第一列，这样更容易查看
+            df_preds.insert(0, "patient_id", patient_ids)
+
+            # 5. 覆盖保存
+            df_preds.to_csv(pred_file, index=False)
+
+            print(
+                f"  ✅ 成功为 '{pred_file.name}' 添加了 {len(patient_ids)} 个 patient_id。"
+            )
+
+        except Exception as e:
+            print(f"❌ 处理文件 '{pred_file.name}' 时发生意外错误: {e}")
+
+    print("--- 处理完成 ---")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="为一个目录下的所有 k-fold 预测CSV文件添加 patient_id。",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--preds-dir",
+        type=str,
+        required=True,
+        help="存放 'fold_k_predictions.csv' 文件的目录。",
+    )
+    parser.add_argument(
+        "--splits-dir", type=str, required=True, help="存放 'fold_k.txt' 文件的目录。"
+    )
+
+    args = parser.parse_args()
+    add_ids_to_predictions(args.preds_dir, args.splits_dir)
+-e 
+--- End of file: ./add_patient_ids.py ---
+
+
+--- Start of file: ./bias_correction.py ---
+import os
+import SimpleITK as sitk
+
+
+def bias_field_correction(input_folder, output_folder):
+    os.makedirs(output_folder, exist_ok=True)
+
+    for filename in os.listdir(input_folder):
+        if filename.endswith(".nii") or filename.endswith(".nii.gz"):
+            input_path = os.path.join(input_folder, filename)
+            output_path = os.path.join(output_folder, filename)
+
+            print(f"正在校正: {input_path}")
+            image = sitk.ReadImage(input_path, sitk.sitkFloat32)
+
+            mask = sitk.OtsuThreshold(image, 0, 1, 200)
+            corrector = sitk.N4BiasFieldCorrectionImageFilter()
+            corrected = corrector.Execute(image, mask)
+
+            sitk.WriteImage(corrected, output_path)
+            print(f"已保存: {output_path}")
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="对 NIfTI 图像进行 Bias Field 校正")
+    parser.add_argument("input_folder", help="输入 NIfTI 文件夹")
+    parser.add_argument("output_folder", help="输出校正后文件夹")
+    args = parser.parse_args()
+    bias_field_correction(args.input_folder, args.output_folder)
+-e 
+--- End of file: ./bias_correction.py ---
+
+
+--- Start of file: ./plot_shap_dca.py ---
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+plot_shap_dca.py
+生成 SHAP + 校准后 DCA 图（SCI 期刊级格式）
+- 自动兼容无 Patient_ID
+- 使用 strict=False 加载 state_dict，打印加载报告
+- 在验证集上以 Isotonic Regression 做概率校准
+2025 · Git Expert
+"""
+
+import os
+import sys
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+import numpy as np
+import pandas as pd
+import torch
+import shap
+import matplotlib.pyplot as plt
+from sklearn.isotonic import IsotonicRegression
+
+# ─────────── Matplotlib SCI 期刊配置（非 Times 字体） ───────────
+plt.rcParams.update({
+    "figure.dpi":      300,
+    "savefig.dpi":     300,
+    "figure.figsize":  (8, 6),
+    "font.family":     "sans-serif",
+    "font.sans-serif": ["Arial", "Liberation Sans", "DejaVu Sans"],
+    "font.size":       12,
+    "axes.titlesize":  16,
+    "axes.labelsize":  14,
+    "xtick.labelsize": 12,
+    "ytick.labelsize": 12,
+    "legend.fontsize": 12,
+})
+
+# ─────────── 导入 ClinicalNet ───────────
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+sys.path.insert(0, REPO_ROOT)
+try:
+    from src.models import ClinicalNet
+except ImportError:
+    # 兜底示例网络（仅供调试）
+    class ClinicalNet(torch.nn.Module):
+        def __init__(self, input_dim, hidden=64, n_classes=2):
+            super().__init__()
+            self.net = torch.nn.Sequential(
+                torch.nn.Linear(input_dim, hidden),
+                torch.nn.ReLU(inplace=True),
+                torch.nn.Linear(hidden, n_classes),
+            )
+        def forward(self, x):
+            return self.net(x)
+
+# ─────────── SHAP 绘图 ───────────
+def plot_shap(model, background, x_test, feat_names, out_dir, pos_cls=1):
+    explainer = shap.DeepExplainer(model, background)
+    shap_vals = explainer.shap_values(x_test)[pos_cls]
+    df_test   = pd.DataFrame(x_test.cpu().numpy(), columns=feat_names)
+
+    plt.figure()
+    shap.summary_plot(
+        shap_vals, df_test,
+        plot_type="dot",
+        max_display=min(25, len(feat_names)),
+        show=False
+    )
+    plt.tight_layout()
+
+    os.makedirs(out_dir, exist_ok=True)
+    p = os.path.join(out_dir, "shap_summary.png")
+    plt.savefig(p, bbox_inches="tight")
+    plt.close()
+    print(f"✅ SHAP 图已保存 → {p}")
+
+# ─────────── DCA 曲线 ───────────
+def plot_dca(y, p, out_dir):
+    thresholds = np.linspace(0.01, 0.99, 100)
+    n = y.size
+    nb_model = [
+        ((p >= t) & (y == 1)).sum() / n
+        - ((p >= t) & (y == 0)).sum() / n * t / (1 - t)
+        for t in thresholds
+    ]
+    prev    = y.mean()
+    nb_all  = prev - (1 - prev) * thresholds / (1 - thresholds)
+    nb_none = np.zeros_like(thresholds)
+
+    plt.figure()
+    plt.plot(thresholds, nb_model, label="Calibrated Model", lw=2)
+    plt.plot(thresholds, nb_all,  "--", label="Treat-All")
+    plt.plot(thresholds, nb_none, ":", label="Treat-None")
+    plt.xlabel("Threshold Probability")
+    plt.ylabel("Net Benefit")
+    plt.title("Decision Curve Analysis (Calibrated)")
+    plt.ylim(min(nb_model) - .05, max(nb_all) + .05)
+    plt.grid(alpha=.4)
+    plt.legend(frameon=False)
+    plt.tight_layout()
+
+    os.makedirs(out_dir, exist_ok=True)
+    p = os.path.join(out_dir, "dca_curve_calibrated.png")
+    plt.savefig(p, bbox_inches="tight")
+    plt.close()
+    print(f"✅ 校准后 DCA 图已保存 → {p}")
+
+# ─────────── 主流程 ───────────
+def run_fixed(fold=1):
+    # —— 固定路径配置 —— 
+    model_path = (
+        f"/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/"
+        f"results/final_run/best_model_fold_{fold}.pth"
+    )
+    data_dir = (
+        "/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/"
+        "results/final_run/processed_data"
+    )
+    save_dir = (
+        f"/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/"
+        f"results/final_run/figures_fold{fold}"
+    )
+
+    print(f"\n📦 Fold {fold}: 载入数据和模型…")
+    tr_csv = os.path.join(data_dir, f"fold_{fold}_train.csv")
+    va_csv = os.path.join(data_dir, f"fold_{fold}_val.csv")
+    df_tr  = pd.read_csv(tr_csv)
+    df_va  = pd.read_csv(va_csv)
+
+    # 标签 & 特征
+    y_va = df_va["label"].values.astype(int)
+    drop_va = [c for c in ["label", "Patient_ID"] if c in df_va.columns]
+    drop_tr = [c for c in ["label", "Patient_ID"] if c in df_tr.columns]
+    X_va = df_va.drop(columns=drop_va)
+    X_tr = df_tr.drop(columns=drop_tr)
+    feat_names = X_va.columns.tolist()
+
+    # 张量化
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    X_va_t = torch.tensor(X_va.values, dtype=torch.float32, device=device)
+    X_tr_t = torch.tensor(X_tr.values, dtype=torch.float32, device=device)
+
+    # 加载模型（strict=False）
+    model = ClinicalNet(input_dim=X_va_t.shape[1]).to(device)
+    state = torch.load(model_path, map_location=device)
+    res = model.load_state_dict(state, strict=False)
+    print("🔧 load_state_dict 结果 →", res)
+    model.eval()
+
+    # SHAP
+    print("📊 生成 SHAP 图…")
+    plot_shap(model, X_tr_t[: min(100, len(X_tr_t))], X_va_t, feat_names, save_dir)
+
+    # DCA with calibration
+    print("📈 生成 校准后 DCA 曲线…")
+    with torch.no_grad():
+        logits      = model(X_va_t)
+        y_prob_raw  = torch.softmax(logits, dim=1)[:, 1].cpu().numpy()
+
+    # 校准：Isotonic Regression
+    ir = IsotonicRegression(out_of_bounds='clip')
+    y_prob_cal  = ir.fit_transform(y_prob_raw, y_va)
+
+    plot_dca(y_va, y_prob_cal, save_dir)
+
+    print(f"\n🎉 所有图表已生成 → {save_dir}")
+
+# 🚀 执行（修改 fold=0~4）
+if __name__ == "__main__":
+    run_fixed(fold=1)
+-e 
+--- End of file: ./plot_shap_dca.py ---
+
+
+--- Start of file: ./convert_dicom_to_png.py ---
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+simclr_linear_probe_sij.py
+
+Self-Supervised Pretraining (SimCLR) on unlabeled pelvis MRI + Linear Probe on SIJ MRI
+with subject-level Leave-One-Out Cross-Validation (LOOCV) AUC and permutation test.
+
+Workflow:
+1. Pre-train a ResNet18 encoder using SimCLR on a large, unlabeled dataset of pelvis MRIs.
+   (This step is skipped if the output encoder file already exists).
+2. Load the pre-trained encoder.
+3. For the downstream task, load SIJ images from AS and Healthy cohorts.
+   - The subject ID is inferred from the parent directory name of the image files.
+4. Extract features for every SIJ image and aggregate them (mean pooling) to get a
+   single feature vector per subject.
+5. Perform a linear probe using Logistic Regression with LOOCV on the subject-level features.
+6. Calculate the LOOCV AUC score.
+7. Run a permutation test on the LOOCV predictions to assess statistical significance.
+
+Dependencies:
+  pip install torch torchvision lightly scikit-learn tqdm pillow
+
+Usage:
+  python simclr_linear_probe_sij.py \
+    --pelvis-dir /path/to/pelvis_png_images \
+    --sij-as-dir /path/to/mri_AS \
+    --sij-healthy-dir /path/to/health1 \
+    --sij-healthy-dir /path/to/health2 \
+    --encoder-out encoder_simclr.pth \
+    --batch-size-pre 64 --epochs-pre 50 \
+    --n-perm 5000 \
+    --device cpu
+"""
+import os
+import argparse
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from torchvision import transforms, models
+from PIL import Image
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import LeaveOneOut
+from sklearn.metrics import roc_auc_score
+from tqdm import tqdm
+import lightly
+from lightly.data import LightlyDataset, ImageCollateFunction
+from lightly.models.simclr import SimCLR
+
+def parse_args():
+    p = argparse.ArgumentParser(description="SimCLR Pretrain + Linear Probe on SIJ MRI")
+    p.add_argument('--pelvis-dir', required=True, help='Directory with pelvis images for self-supervised pretraining')
+    p.add_argument('--sij-as-dir', required=True, help='Root directory with AS SIJ images (subject folders inside)')
+    p.add_argument('--sij-healthy-dir', action='append', required=True, help='Root directory with Healthy SIJ images (subject folders inside)')
+    p.add_argument('--encoder-out', default='encoder_simclr.pth', help='Path to save/load SimCLR encoder weights')
+    p.add_argument('--batch-size-pre', type=int, default=64, help='Batch size for SimCLR pretraining')
+    p.add_argument('--epochs-pre', type=int, default=50, help='Epochs for SimCLR pretraining')
+    p.add_argument('--n-perm', type=int, default=5000, help='Number of permutations for p-value test')
+    p.add_argument('--force-pretrain', action='store_true', help='Force pretraining even if encoder file exists')
+    p.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu', help='Device: cpu or cuda')
+    return p.parse_args()
+
+# -------- 1. Pretrain SimCLR -------- #
+def pretrain_simclr(pelvis_dir, encoder_out, batch_size, epochs, device):
+    print("--- Starting SimCLR Pre-training ---")
+    # Dataset & DataLoader
+    dataset = LightlyDataset(input_dir=pelvis_dir)
+    collate_fn = ImageCollateFunction(input_size=224, vf_prob=0.5, hf_prob=0.5, rr_prob=0.5)
+    # Set num_workers=0 for better cross-platform compatibility, especially on CPU
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=0, drop_last=True)
+
+    # Model initialization with backbone
+    backbone = models.resnet18()
+    backbone.fc = nn.Identity() # Remove final classification layer
+    
+    # === THIS IS THE FIX ===
+    # Pass the backbone to the SimCLR model constructor
+    model = SimCLR(backbone=backbone)
+    # =======================
+    model.to(device)
+
+    criterion = lightly.loss.NTXentLoss() # SimCLRLoss is an alias
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    
+    # Training loop
+    model.train()
+    for ep in range(1, epochs + 1):
+        total_loss = 0.0
+        # The collate function returns a tuple of ((x0, x1), labels, fnames)
+        for (x0, x1), _, _ in tqdm(loader, desc=f"SimCLR Epoch {ep}/{epochs}"):
+            x0, x1 = x0.to(device), x1.to(device)
+            z0, z1 = model(x0, x1)
+            loss = criterion(z0, z1)
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+        
+        avg_loss = total_loss / len(loader)
+        print(f"Epoch {ep}: Average Loss = {avg_loss:.4f}")
+        
+    # Save encoder backbone
+    torch.save(model.backbone.state_dict(), encoder_out)
+    print(f"✅ Saved pre-trained encoder weights to {encoder_out}")
+
+# -------- 2. Linear Probe -------- #
+def extract_features_by_subject(root_dirs_labels, encoder, transform, device):
+    """Extracts features and aggregates them by subject ID."""
+    encoder.eval()
+    
+    subject_data = {} # {sid: {'paths': [...], 'label': 0/1}}
+    print("\n🔎 Scanning SIJ directories to identify subjects and images...")
+    for root_dir, label in root_dirs_labels:
+        # Handle case where directory might not exist
+        if not os.path.isdir(root_dir):
+            print(f"⚠️ Warning: Directory not found, skipping: {root_dir}")
+            continue
+        for subject_id in os.listdir(root_dir):
+            subject_path = os.path.join(root_dir, subject_id)
+            if os.path.isdir(subject_path):
+                # Use subject path as a more unique key if subject_ids can overlap (e.g., 'health1/S01', 'health2/S01')
+                unique_sid = f"{os.path.basename(root_dir)}_{subject_id}"
+                subject_data[unique_sid] = {'paths': [], 'label': label}
+                for fn in os.listdir(subject_path):
+                    if fn.lower().endswith(('.jpg', '.png', '.jpeg')):
+                        subject_data[unique_sid]['paths'].append(os.path.join(subject_path, fn))
+
+    print(f"Found {len(subject_data)} subjects.")
+    
+    # Extract features for all images
+    subject_features = {sid: [] for sid in subject_data}
+    with torch.no_grad():
+        for sid, data in tqdm(subject_data.items(), desc="🖼️  Extracting image features"):
+            if not data['paths']: continue
+            for path in data['paths']:
+                img = Image.open(path).convert('RGB')
+                x = transform(img).unsqueeze(0).to(device)
+                feature_vec = encoder(x).flatten().cpu().numpy()
+                subject_features[sid].append(feature_vec)
+
+    # Aggregate features by subject (mean pooling)
+    X_subject, y_subject, subject_ids = [], [], []
+    print("🧠 Aggregating features to subject-level...")
+    for sid, features_list in subject_features.items():
+        if features_list:
+            X_subject.append(np.mean(np.array(features_list), axis=0))
+            y_subject.append(subject_data[sid]['label'])
+            subject_ids.append(sid)
+            
+    return np.array(X_subject), np.array(y_subject), subject_ids
+
+def run_loocv_probe(X, y, n_perm):
+    """Performs LOOCV linear probe and permutation test."""
+    print("\n--- Starting Linear Probe with LOOCV ---")
+    loo = LeaveOneOut()
+    preds_proba, true_labels = [], []
+    
+    for train_idx, test_idx in loo.split(X):
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
+        
+        clf = LogisticRegression(solver='liblinear', class_weight='balanced', max_iter=1000)
+        clf.fit(X_train, y_train)
+        
+        # Predict probability of the positive class (AS=1)
+        prob = clf.predict_proba(X_test)[0, 1]
+        preds_proba.append(prob)
+        true_labels.append(y_test[0])
+        
+    auc = roc_auc_score(true_labels, preds_proba)
+    print(f"📈 LOOCV AUC = {auc:.4f}")
+
+    # --- Permutation Test ---
+    print(f"🔀 Running permutation test ({n_perm} iterations)...")
+    
+    # Observed difference in mean predicted probability between classes
+    preds_proba = np.array(preds_proba)
+    true_labels = np.array(true_labels)
+    obs_stat = (np.mean(preds_proba[true_labels == 1]) - np.mean(preds_proba[true_labels == 0]))
+    
+    count_extreme = 0
+    # Use tqdm for the permutation loop as it can be slow
+    for _ in tqdm(range(n_perm), desc="Permutations"):
+        shuffled_labels = np.random.permutation(true_labels)
+        perm_stat = (np.mean(preds_proba[shuffled_labels == 1]) - np.mean(preds_proba[shuffled_labels == 0]))
+        if abs(perm_stat) >= abs(obs_stat):
+            count_extreme += 1
+            
+    pval = (count_extreme + 1) / (n_perm + 1)
+    print(f"📊 Permutation Test p-value = {pval:.4f}")
+    return auc, pval
+
+if __name__ == '__main__':
+    args = parse_args()
+    device = torch.device(args.device)
+
+    # --- 1. PRE-TRAINING ---
+    if args.force_pretrain or not os.path.exists(args.encoder_out):
+        pretrain_simclr(
+            pelvis_dir=args.pelvis_dir,
+            encoder_out=args.encoder_out,
+            batch_size=args.batch_size_pre,
+            epochs=args.epochs_pre,
+            device=device
+        )
+    else:
+        print(f"☑️ Found existing encoder '{args.encoder_out}'. Skipping pre-training.")
+
+    # --- 2. FEATURE EXTRACTION & PROBING ---
+    # Load the backbone of the pre-trained model
+    encoder = models.resnet18()
+    encoder.fc = nn.Identity() # The encoder is just the backbone
+    encoder.load_state_dict(torch.load(args.encoder_out, map_location=device))
+    encoder.to(device)
+    encoder.eval()
+
+    # Define the same transformation used for probing
+    tf_probe = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    # Prepare SIJ data paths with labels
+    sij_dirs_labels = [(args.sij_as_dir, 1)] + [(hd, 0) for hd in args.sij_healthy_dir]
+
+    # Extract features at the subject level
+    X_subjects, y_subjects, sids = extract_features_by_subject(sij_dirs_labels, encoder, tf_probe, device)
+    
+    n_healthy = np.sum(y_subjects == 0)
+    n_as = np.sum(y_subjects == 1)
+    print(f"Loaded {len(sids)} subjects for probing (Healthy={n_healthy}, AS={n_as}).")
+
+    if n_healthy < 1 or n_as < 1:
+        print("❌ Error: Need at least one subject from each class to run the probe.")
+    else:
+        run_loocv_probe(X_subjects, y_subjects, args.n_perm)-e 
+--- End of file: ./convert_dicom_to_png.py ---
+
+
+--- Start of file: ./extract_roi.py ---
+import os
+import nibabel as nib
+import numpy as np
+
+
+def extract_roi(input_folder, output_folder, roi_size=(80, 80, 80)):
+    os.makedirs(output_folder, exist_ok=True)
+
+    for filename in os.listdir(input_folder):
+        if filename.endswith(".nii") or filename.endswith(".nii.gz"):
+            filepath = os.path.join(input_folder, filename)
+            img = nib.load(filepath)
+            data = img.get_fdata()
+
+            center = np.array(data.shape) // 2
+            half = np.array(roi_size) // 2
+
+            start = center - half
+            end = center + half
+
+            # fmt: off
+            roi = data[start[0]:end[0], start[1]:end[1], start[2]:end[2]]
+            # fmt: on
+
+            roi_img = nib.Nifti1Image(roi, img.affine, img.header)
+            save_path = os.path.join(output_folder, filename)
+            nib.save(roi_img, save_path)
+
+            print(f"✅ 已提取 ROI：{save_path}")
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="从 NIfTI 图像中提取 ROI 区域")
+    parser.add_argument("input_folder", help="输入偏场校正的 NIfTI 文件夹")
+    parser.add_argument("output_folder", help="保存 ROI 提取结果的文件夹")
+    args = parser.parse_args()
+
+    extract_roi(args.input_folder, args.output_folder)
+-e 
+--- End of file: ./extract_roi.py ---
+
+
+--- Start of file: ./check_processed_data.py ---
+# scripts/check_processed_data.py
+# -*- coding: utf-8 -*-
+"""
+数据质量检查工具。
+
+遍历所有由 'preprocess_clinical.py' 生成的CSV文件，
+并检查其中是否存在任何 NaN (Not a Number / 缺失值)。
+"""
+import pandas as pd
+from pathlib import Path
+
+
+def check_data_quality():
+    """主检查函数"""
+    print("--- 开始全面检查所有已处理的数据文件 ---")
+
+    data_dir = Path("data/processed_clinical_data")
+
+    if not data_dir.exists():
+        print(f"❌ 错误: 找不到目录 '{data_dir}'。")
+        print("请确保您已经成功运行了  脚本。")
+        return
+
+    # 查找所有处理过的 fold CSV 文件
+    csv_files = sorted(list(data_dir.glob("fold_*_*.csv")))
+
+    if not csv_files:
+        print(f"⚠️ 警告: 在 {data_dir} 中没有找到任何 'fold_*_*.csv' 文件。")
+        return
+
+    found_issue = False
+    for file_path in csv_files:
+        print(f"🔍 正在检查文件: {file_path.name}")
+        try:
+            df = pd.read_csv(file_path)
+
+            # 检查整个DataFrame是否有任何NaN值
+            if df.isnull().values.any():
+                print(f"  ‼️‼️‼️ 警告: 文件 '{file_path.name}' 中发现 NaN (缺失) 值! ‼️‼️‼️")
+                # 打印出具体是哪些列有多少个NaN值
+                nan_info = df.isnull().sum()
+                print("  缺失值统计:")
+                print(nan_info[nan_info > 0])
+                print("-" * 20)
+                found_issue = True
+
+        except Exception as e:
+            print(f"  ❌ 读取或检查文件 '{file_path.name}' 时出错: {e}")
+            found_issue = True
+
+    if not found_issue:
+        print("\n--- ✅ 所有文件检查完毕，没有发现明显的 NaN 问题。---")
+    else:
+        print(
+            "\n--- ❗ 检查发现问题，请查看上面的警告信息。问题可能源于  的填充逻辑未能处理某些特殊情况。---"
+        )
+
+
+if __name__ == "__main__":
+    check_data_quality()
+-e 
+--- End of file: ./check_processed_data.py ---
+
+
+--- Start of file: ./raw2nii_sij_new.py ---
+import numpy as np
+import nibabel as nib
+import os
+import re
+import matplotlib.pyplot as plt
+
+# --- 配置路径 ---
+input_dir = "/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/data/mri_image_raw/sacroiliac_joint"
+nii_output_dir = "/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/data/nii_sij"
+png_output_dir = "/Users/hydra/Downloads/MRI-AS-MRI_AS/FINAL_AS/data/png_sij_clean"
+os.makedirs(nii_output_dir, exist_ok=True)
+os.makedirs(png_output_dir, exist_ok=True)
+
+
+import os
+import sys
+import random
+import argparse
+import numpy as np
+from PIL import Image
+from tqdm import tqdm
+
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
+
+# Import plotting libraries
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def set_seed(seed: int):
+    """Fix random seeds for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # Ensure deterministic operations
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+# --- Image preprocessing ---
+IMG_TRANSFORM = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225]),
+])
+
+class FeatureExtractor(nn.Module):
+    """ResNet18-based feature extractor (removes final fc layer)."""
+    def __init__(self, device):
+        super().__init__()
+        # Use updated weights parameter
+        backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        self.encoder = nn.Sequential(*list(backbone.children())[:-1]).to(device)
+        self.encoder.eval() # Set to evaluation mode
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            feat = self.encoder(x)       # [B, 512, 1, 1]
+        return feat.view(feat.size(0), -1)  # [B, 512]
+
+def extract_subject_features(dirs_labels, device, batch_size=8):
+    """
+    Scans all given directories recursively, extracts and aggregates features per subject.
+    Args:
+        dirs_labels (list): A list of (root_dir, label) tuples.
+        device (torch.device): The device to run the model on.
+        batch_size (int): Batch size for processing images.
+    Returns:
+        A tuple containing:
+        - X (np.ndarray): Feature matrix of shape (n_subjects, 512).
+        - y (np.ndarray): Label vector of shape (n_subjects,).
+        - ids (list): A list of subject IDs.
+    """
+    extractor = FeatureExtractor(device)
+    jobs = []  # list of (img_path, subject_id, label)
+    exts = (".png", ".jpg", ".jpeg")
+
+    print("📁 Scanning image directories...")
+    for root_dir, label in dirs_labels:
+        if not os.path.isdir(root_dir):
+            print(f"⚠️ Warning: Directory not found, skipping: {root_dir}", file=sys.stderr)
+            continue
+        for root, _, files in os.walk(root_dir):
+            # Assumes subject ID is the name of the directory containing the images
+            sid = os.path.basename(root)
+            # Ensure we are in a subject-specific subdirectory
+            if sid == os.path.basename(root_dir):
+                continue
+            for fn in files:
+                if fn.lower().endswith(exts):
+                    jobs.append((os.path.join(root, fn), sid, label))
+
+    if not jobs:
+        print("❌ Error: No images found. Please check your --healthy-dir and --as-dir paths.", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"🔍 Found {len(jobs)} images across {len(set(s for _, s, _ in jobs))} potential subjects.")
+    
+    # Group images by subject
+    subject_images = {}
+    for path, sid, label in jobs:
+        subject_images.setdefault(sid, {'paths': [], 'label': label})['paths'].append(path)
+
+    feats = {}
+    labels = {}
+
+    try:
+        with torch.no_grad():
+            for sid, data in tqdm(subject_images.items(), desc="🖼️  Extracting features per subject"):
+                subject_feats = []
+                img_paths = data['paths']
+                label = data['label']
+                
+                for i in range(0, len(img_paths), batch_size):
+                    batch_paths = img_paths[i:i+batch_size]
+                    imgs = [IMG_TRANSFORM(Image.open(p).convert("RGB")) for p in batch_paths]
+                    batch_t = torch.stack(imgs).to(device)
+                    out = extractor(batch_t).cpu().numpy()
+                    subject_feats.append(out)
+                
+                # Aggregate features for the subject (mean pooling)
+                all_feats_np = np.vstack(subject_feats)
+                feats[sid] = np.mean(all_feats_np, axis=0)
+                labels[sid] = label
+
+    except KeyboardInterrupt:
+        print("\n⚠️ Extraction aborted by user.", file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError as e:
+        print(f"\n❌ Error: Image file not found. {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+    # Final assembly
+    ids = list(feats.keys())
+    X = np.array([feats[sid] for sid in ids])
+    y = np.array([labels[sid] for sid in ids])
+    
+    return X, y, ids
+
+def compute_distance_permutation_test(X: np.ndarray, y: np.ndarray, n_perm: int, seed: int):
+    """
+    Computes observed centroid distance and p-value from a permutation test.
+    Returns:
+        A tuple containing:
+        - d_obs (float): The observed Euclidean distance between class centroids.
+        - pval (float): The calculated p-value.
+        - perm_distances (list): A list of distances from all permutations.
+    """
+    # Define labels for clarity
+    HEALTHY_LABEL, AS_LABEL = 0, 1
+    
+    # Observed distance
+    mu_healthy = X[y == HEALTHY_LABEL].mean(axis=0)
+    mu_as = X[y == AS_LABEL].mean(axis=0)
+    d_obs = np.linalg.norm(mu_healthy - mu_as)
+
+    # Permutation test
+    rng = np.random.RandomState(seed)
+    perm_distances = []
+    y_shuffled = np.copy(y)
+    
+    for _ in tqdm(range(n_perm), desc="🔀 Running permutations"):
+        rng.shuffle(y_shuffled)
+        mu0_p = X[y_shuffled == HEALTHY_LABEL].mean(axis=0)
+        mu1_p = X[y_shuffled == AS_LABEL].mean(axis=0)
+        perm_distances.append(np.linalg.norm(mu0_p - mu1_p))
+    
+    # Calculate p-value: (number of times permuted distance >= observed + 1) / (N + 1)
+    count_extreme = np.sum(np.array(perm_distances) >= d_obs)
+    pval = (count_extreme + 1) / (n_perm + 1)
+    
+    return d_obs, pval, perm_distances
+
+def plot_permutation_results(d_obs, pval, perm_distances, output_file):
+    """
+    Generates and saves a publication-quality plot of the permutation test results.
+    """
+    print(f"🎨 Generating plot and saving to {output_file}...")
+    
+    # Set plot style for academic publications
+    sns.set_theme(style="whitegrid", context="paper", font_scale=1.2)
+    plt.figure(figsize=(8, 6))
+
+    # Plot the histogram of permuted distances
+    ax = sns.histplot(x=perm_distances, kde=True, color="skyblue", stat="density")
+    
+    # Add a vertical line for the observed distance
+    plt.axvline(d_obs, color='red', linestyle='--', linewidth=2, 
+                label=f'Observed Distance\n($d_{{obs}} = {d_obs:.4f}$)')
+
+    # Add text for the p-value
+    # Place text based on data range to avoid overlap
+    ymin, ymax = ax.get_ylim()
+    xmin, xmax = ax.get_xlim()
+    text_x = d_obs + (xmax - xmin) * 0.05
+    if text_x > xmax * 0.9: # Adjust if too far right
+        text_x = xmin + (xmax-xmin) * 0.7
+        
+    plt.text(text_x, ymax * 0.8, f'$p$-value = {pval:.4f}', 
+             fontdict={'size': 14, 'weight': 'bold', 'color': 'black'})
+
+    # Add titles and labels
+    plt.title('Permutation Test for Feature Space Separation', fontsize=16, fontweight='bold')
+    plt.xlabel('Euclidean Distance Between Group Centroids', fontsize=12)
+    plt.ylabel('Density', fontsize=12)
+    plt.legend(loc='upper right', fontsize=12)
+    
+    # Ensure layout is tight and save the figure with high resolution
+    plt.tight_layout()
+    try:
+        # Create directory if it doesn't exist
+        output_dir = os.path.dirname(output_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(output_file, dpi=300, bbox_inches='tight')
+        print(f"✅ Plot successfully saved.")
+    except Exception as e:
+        print(f"❌ Failed to save plot: {e}", file=sys.stderr)
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="SIJ Concept Validation via Distance-based Permutation Test.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument("--healthy-dir", action="append", required=True,
+                        help="Root directory of healthy subjects (scanned recursively).\nEach subject's images should be in a separate subdirectory.")
+    parser.add_argument("--as-dir", action="append", required=True,
+                        help="Root directory of AS subjects (scanned recursively).\nEach subject's images should be in a separate subdirectory.")
+    parser.add_argument("--output-file", type=str, default="permutation_test.png",
+                        help="Path to save the output plot figure (e.g., 'results/test.png').")
+    parser.add_argument("--batch-size", type=int, default=8,
+                        help="Batch size for feature extraction.")
+    parser.add_argument("--n-perm", type=int, default=5000,
+                        help="Number of permutations for the test.")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for reproducibility.")
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu",
+                        help="Computation device ('cuda' or 'cpu').")
+    args = parser.parse_args()
+
+    # --- Setup ---
+    set_seed(args.seed)
+    device = torch.device(args.device)
+    print(f"⚙️ Using device: {device}, Seed: {args.seed}")
+    
+    # Prepare directory list with labels (0 for healthy, 1 for AS)
+    dirs_labels = [(d, 0) for d in args.healthy_dir] + [(d, 1) for d in args.as_dir]
+
+    # --- Feature Extraction ---
+    X, y, ids = extract_subject_features(dirs_labels, device, args.batch_size)
+    n_healthy = np.sum(y == 0)
+    n_as = np.sum(y == 1)
+    
+    if n_healthy == 0 or n_as == 0:
+        print(f"❌ Error: Not enough subjects found. Healthy: {n_healthy}, AS: {n_as}. Need at least one of each.", file=sys.stderr)
+        sys.exit(1)
+        
+    print(f"📊 Extracted features for {len(ids)} subjects (Healthy={n_healthy}, AS={n_as}).")
+
+    # --- Permutation Test ---
+    d_obs, pval, perm_distances = compute_distance_permutation_test(X, y, args.n_perm, args.seed)
+    
+    print("\n--- Results ---")
+    print(f"▶ Observed Centroid Distance ($d_{{obs}}$): {d_obs:.4f}")
+    print(f"▶ Permutation Test $p$-value: {pval:.4f} (based on {args.n_perm} permutations)")
+
+    # --- Visualization ---
+    if args.output_file:
+        plot_permutation_results(d_obs, pval, perm_distances, args.output_file)
+
+if __name__ == "__main__":
+    main()-e 
+--- End of file: ./raw2nii_sij_new.py ---
+
+
+--- Start of file: ./preprocess_final.py ---
+# FINAL, DEFINITIVE PREPROCESSING SCRIPT (v4)
+import pandas as pd
+import numpy as np
+import argparse
+import os
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import StratifiedKFold
+from imblearn.over_sampling import SMOTE
+from sklearn.pipeline import Pipeline
+
+print("✅✅✅ Running the DEFINITIVE preprocessor (v4). This will work. ✅✅✅")
+
+def create_preprocessor(numeric_features, categorical_features):
+    """Creates a preprocessor for different feature types."""
+    numeric_transformer = Pipeline(steps=[
+        ("imputer", SimpleImputer(strategy="mean")), ("scaler", StandardScaler())
+    ])
+    categorical_transformer = Pipeline(steps=[
+        ("imputer", SimpleImputer(strategy="most_frequent")),
+        ("onehot", OneHotEncoder(handle_unknown="ignore")),
+    ])
+    return ColumnTransformer(transformers=[
+        ("num", numeric_transformer, numeric_features),
+        ("cat", categorical_transformer, categorical_features),
+    ], remainder="passthrough")
+
+def run_final_preprocessing(input_csv, output_dir, n_splits=5, id_column="Patient ID", label_column="label", target_disease='Ankylosing Spondylitis'):
+    """Main function: Loads RAW data, balances it, and processes it safely."""
+    print(f"📥 Reading ORIGINAL raw data: {input_csv}")
+    df = pd.read_csv(input_csv)
+    
+    # --- Data Cleaning and Selection ---
+    # Standardize column names (remove spaces, etc.)
+    df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('(', '').str.replace(')', '')
+    id_column = id_column.replace(' ', '_')
+    target_disease_col_name = 'Disease' # The name of the disease column in the raw file
+
+    print(f"🎯 Defining the binary classification problem:")
+    print(f"  - Positive Class (1): '{target_disease}'")
+    print(f"  - Negative Class (0): All other diseases")
+
+    # Create the binary 'label'
+    df[label_column] = (df[target_disease_col_name] == target_disease).astype(int)
+
+    # --- Balancing the Dataset ---
+    df_positive = df[df[label_column] == 1]
+    df_negative = df[df[label_column] == 0]
+    
+    # Balance by downsampling the majority class
+    n_samples = len(df_positive)
+    if len(df_negative) > n_samples:
+        df_negative = df_negative.sample(n=n_samples, random_state=42)
+    
+    df_balanced = pd.concat([df_positive, df_negative]).sample(frac=1, random_state=42).reset_index(drop=True)
+    print(f"⚖️  Data has been balanced. Total samples: {len(df_balanced)}. Each class has ~{n_samples} samples.")
+
+    # --- The most important step: Define X and y from the clean, balanced data ---
+    y = df_balanced[label_column]
+    patient_ids = df_balanced[id_column]
+
+    # Explicitly drop the label, the original disease column, and the ID column to create features X
+    print(f"🔥 Removing ALL potential leaks: '{label_column}', '{target_disease_col_name}', '{id_column}'")
+    X = df_balanced.drop(columns=[label_column, id_column, target_disease_col_name], errors='ignore')
+
+    # --- Proceed with the trusted cross-validation pipeline ---
+    os.makedirs(output_dir, exist_ok=True)
+    split_dir = os.path.join(output_dir, "splits")
+    os.makedirs(split_dir, exist_ok=True)
+    
+    numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+    categorical_features = X.select_dtypes(exclude=np.number).columns.tolist()
+    
+    kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    print(f"\n--- Starting {n_splits}-fold cross-validation data preparation ---")
+
+    for fold, (train_idx, val_idx) in enumerate(kf.split(X, y)):
+        print(f"\n⚙️  Processing Fold {fold}...")
+        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+        val_ids = patient_ids.iloc[val_idx]
+
+        preprocessor = create_preprocessor(numeric_features, categorical_features)
+        preprocessor.fit(X_train)
+
+        try:
+            ohe_names = preprocessor.named_transformers_["cat"]["onehot"].get_feature_names_out(categorical_features)
+            new_feature_names = numeric_features + ohe_names.tolist()
+        except:
+            new_feature_names = list(X.columns)
+
+        X_train_processed = preprocessor.transform(X_train)
+        X_val_processed = preprocessor.transform(X_val)
+
+        smote = SMOTE(random_state=42)
+        X_train_resampled, y_train_resampled = smote.fit_resample(X_train_processed, y_train)
+        
+        df_train_final = pd.DataFrame(X_train_resampled, columns=new_feature_names)
+        df_train_final[label_column] = y_train_resampled
+
+        df_val_final = pd.DataFrame(X_val_processed, columns=new_feature_names)
+        df_val_final[label_column] = y_val.values
+        df_val_final.insert(0, id_column, val_ids.values)
+
+        train_path = os.path.join(output_dir, f"fold_{fold}_train.csv")
+        val_path = os.path.join(output_dir, f"fold_{fold}_val.csv")
+        df_train_final.to_csv(train_path, index=False)
+        df_val_final.to_csv(val_path, index=False)
+        print(f"  ✅ Fold {fold} data saved.")
+
+    print("\n🎉 All data processing and splitting complete!")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="The definitive script for preprocessing clinical data directly from the raw source.")
+    parser.add_argument("input_csv", help="Path to the ORIGINAL RAW data CSV file.")
+    parser.add_argument("output_dir", help="Directory to save the processed fold data.")
+    args = parser.parse_args()
+    run_final_preprocessing(args.input_csv, args.output_dir)-e 
+--- End of file: ./preprocess_final.py ---
+
+
+--- Start of file: ./build_balanced_dataset.py ---
+#!/usr/bin/env python3
+"""
+构建 Engine 1 所需的平衡临床数据集。
+
+从包含多种风湿病的原始数据集中提取 Ankylosing Spondylitis（AS）患者为正样本，其余为负样本。
+通过下采样或上采样控制类别平衡，输出供模型训练使用的统一数据集。
+
+示例用法：
+python scripts/build_balanced_dataset.py \
+  --input data/rheumatic_autoimmune_disease.csv \
+  --method undersample \
+  --output data/balanced_clinical.csv
+"""
+
+import pandas as pd
+import argparse
+from sklearn.utils import resample
+import os
+
+
+def build_dataset(df, method="undersample"):
+    pos_df = df[df["Disease"] == "Ankylosing Spondylitis"].copy()
+    neg_df = df[df["Disease"] != "Ankylosing Spondylitis"].copy()
+
+    pos_df["label"] = 1
+    neg_df["label"] = 0
+
+    print(f"原始正样本（AS）数量: {len(pos_df)}")
+    print(f"原始负样本数量: {len(neg_df)}")
+
+    if method == "undersample":
+        neg_df = resample(neg_df,
+                          replace=False,
+                          n_samples=len(pos_df),
+                          random_state=42)
+        print(f"✅ 使用下采样：负样本缩减至 {len(neg_df)}")
+    elif method == "oversample":
+        pos_df = resample(pos_df,
+                          replace=True,
+                          n_samples=len(neg_df),
+                          random_state=42)
+        print(f"✅ 使用上采样：正样本扩增至 {len(pos_df)}")
+    else:
+        raise ValueError("method must be 'undersample' or 'oversample'")
+
+    full_df = pd.concat([pos_df, neg_df], axis=0).sample(frac=1, random_state=42).reset_index(drop=True)
+    return full_df
+
+
+def main(args):
+    if not os.path.exists(args.input):
+        raise FileNotFoundError(f"❌ 输入文件不存在: {args.input}")
+
+    df = pd.read_csv(args.input)
+    if "Disease" not in df.columns:
+        raise ValueError("❌ 缺少必要列：Disease")
+
+    balanced_df = build_dataset(df, method=args.method)
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    balanced_df.to_csv(args.output, index=False)
+    print(f"✅ 已保存平衡数据集至: {args.output}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="构建平衡的AS预测训练集")
+    parser.add_argument("--input", type=str, required=True, help="原始CSV路径（包含Disease列）")
+    parser.add_argument("--method", type=str, default="undersample", choices=["undersample", "oversample"],
+                        help="类别平衡策略")
+    parser.add_argument("--output", type=str, default="data/balanced_clinical.csv",
+                        help="输出路径")
+    args = parser.parse_args()
+    main(args)
+-e 
+--- End of file: ./build_balanced_dataset.py ---
+
+
+--- Start of file: ./new_mri/run_sij_gradcam_analysis.py ---
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+run_sij_gradcam_analysis.py
+
+Leave-One-Subject-Out + Grad-CAM 可解释分析
+(6 vs 2 小样本，用少量增强+Fine-tune，输出专业期刊级三联对比图)
+"""
+import os, sys, random
+import numpy as np
+import torch
+import torch.nn as nn
+import torchvision.models as models
+import torchvision.transforms as transforms
+from PIL import Image
+import matplotlib.pyplot as plt
+import cv2
+from tqdm import tqdm
+
+# ---------------------- 配置 ----------------------
+# 回到项目根目录
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+# 数据路径
+healthy_dirs = [
+    os.path.join(project_root, 'data', 'mri_health', 'health1'),
+    os.path.join(project_root, 'data', 'mri_health', 'health2')
+]
+as_dir = os.path.join(project_root, 'data', 'mri_AS')
+# 输出目录
+output_dir = os.path.join(project_root, 'results', 'grad_cam_outputs')
+os.makedirs(output_dir, exist_ok=True)
+# 随机种子
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+
+# ---------------------- 变换 ----------------------
+# 训练时轻度增强
+train_transform = transforms.Compose([
+    transforms.Resize((224,224)),
+    transforms.RandomRotation(5),
+    transforms.RandomResizedCrop(224, scale=(0.9,1.0)),
+    transforms.ColorJitter(brightness=0.1, contrast=0.1),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
+])
+# 推理不增强
+eval_transform = transforms.Compose([
+    transforms.Resize((224,224)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
+])
+
+# ---------------------- GradCAM ----------------------
+class GradCAM:
+    def __init__(self, model, target_layer):
+        self.model = model.eval()
+        self.grad = None
+        self.act = None
+        target_layer.register_forward_hook(lambda m, i, o: setattr(self, 'act', o))
+        target_layer.register_full_backward_hook(lambda m, gi, go: setattr(self, 'grad', go[0]))
+    def __call__(self, x, cls_idx):
+        out = self.model(x)
+        self.model.zero_grad()
+        out[0, cls_idx].backward(retain_graph=True)
+        g = self.grad[0]   # [C,H,W]
+        a = self.act[0]    # [C,H,W]
+        w = g.mean(dim=(1,2), keepdim=True)
+        cam = (w * a).sum(dim=0).detach().cpu().numpy()
+        cam = np.maximum(cam, 0)
+        cam = cv2.resize(cam, (x.shape[3], x.shape[2]))
+        cam = (cam - cam.min())/(cam.max()-cam.min()+1e-8)
+        return cam
+
+# ---------------------- 收集图像 ----------------------
+all_images = []
+# 健康组
+for lbl, d in enumerate(healthy_dirs):
+    if not os.path.isdir(d):
+        print(f"Error: Healthy dir not found: {d}", file=sys.stderr)
+        sys.exit(1)
+    for subj in os.listdir(d):
+        subdir = os.path.join(d, subj)
+        if os.path.isdir(subdir):
+            for fn in os.listdir(subdir):
+                if fn.lower().endswith(('.jpg','.jpeg','.png')):
+                    all_images.append({'path':os.path.join(subdir,fn),'subject':subj,'label':0,'cls':'Healthy'})
+# AS 组
+if not os.path.isdir(as_dir):
+    print(f"Error: AS dir not found: {as_dir}", file=sys.stderr)
+    sys.exit(1)
+for subj in os.listdir(as_dir):
+    subdir = os.path.join(as_dir, subj)
+    if os.path.isdir(subdir):
+        for fn in os.listdir(subdir):
+            if fn.lower().endswith(('.jpg','.jpeg','.png')):
+                all_images.append({'path':os.path.join(subdir,fn),'subject':subj,'label':1,'cls':'AS'})
+# 检查
+if not all_images:
+    print("No images found.", file=sys.stderr)
+    sys.exit(1)
+print(f"🔍 Total slices: {len(all_images)}, subjects: {len(set(i['subject'] for i in all_images))}")
+
+# ---------------------- 模型 ----------------------
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+model.fc = nn.Linear(model.fc.in_features, 2)
+model.to(device)
+target_layer = model.layer4[-1]
+
+# ---------------------- LOOCV + GradCAM ----------------------
+for subj in tqdm(sorted(set(i['subject'] for i in all_images)), desc='Subject LOOCV'):
+    # 划分
+    train = [i for i in all_images if i['subject']!=subj]
+    test = [i for i in all_images if i['subject']==subj]
+    # Fine-tune
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    criterion = nn.CrossEntropyLoss()
+    model.train()
+    for ep in range(3):
+        random.shuffle(train)
+        for item in train:
+            img = Image.open(item['path']).convert('RGB')
+            inp = train_transform(img).unsqueeze(0).to(device)
+            lbl = torch.tensor([item['label']], device=device)
+            optimizer.zero_grad(); out = model(inp); loss=criterion(out,lbl); loss.backward(); optimizer.step()
+    # 可视化
+    model.eval()
+    camer = GradCAM(model, target_layer)
+    for item in test:
+        orig = Image.open(item['path']).convert('RGB')
+        inp = eval_transform(orig).unsqueeze(0).to(device)
+        out = model(inp)
+        cls_idx = out.argmax(dim=1).item()
+        cam = camer(inp, cls_idx)
+        # 期刊级三联图
+        ori_gray = np.array(orig.resize((224,224)))
+        fig, (ax0,ax1,ax2) = plt.subplots(1,3,figsize=(12,4))
+        ax0.imshow(ori_gray, cmap='gray'); ax0.set_title('Original'); ax0.axis('off')
+        im1 = ax1.imshow(cam, cmap='jet', vmin=0, vmax=1); ax1.set_title('Grad-CAM'); ax1.axis('off')
+        ax2.imshow(ori_gray, cmap='gray');
+        overlay = cv2.applyColorMap(np.uint8(cam*255), cv2.COLORMAP_JET);
+        ax2.imshow(overlay, alpha=0.5); ax2.set_title('Overlay'); ax2.axis('off')
+        cbar = fig.colorbar(im1, ax=[ax0,ax1,ax2], location='right', fraction=0.046, pad=0.04)
+        cbar.set_label('Activation', rotation=270, labelpad=15)
+        fig.suptitle(f"Subject {item['subject']} | {item['cls']}", fontsize=16)
+        outfn = f"{item['subject']}_{os.path.splitext(os.path.basename(item['path']))[0]}_academic.png"
+        fig.savefig(os.path.join(output_dir,outfn), dpi=300, bbox_inches='tight', pad_inches=0.1)
+        plt.close(fig)
+print("✅ Complete. Outputs in:", output_dir)-e 
+--- End of file: ./new_mri/run_sij_gradcam_analysis.py ---
+
+
+--- Start of file: ./new_mri/prepare_sij_dataset.py ---
+# FILE: scripts/prepare_sij_dataset.py
+# PURPOSE: To create a clean, analysis-ready dataset containing only Sacroiliac Joint (SIJ) images.
+# VERSION: 2.0 - Corrected Path Logic
+
+import os
+import shutil
+import glob
+
+print("--- Starting Clean Sacroiliac Joint (SIJ) Dataset Preparation (v2.0) ---")
+
+# --- Configuration ---
+# CORRECTED PATH LOGIC: This logic now correctly finds the project root
+# by searching upwards from the script's location until it finds the 'data' directory.
+# This makes it robust to being saved in sub-folders.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = current_dir
+# Keep going up one directory until we are in the main project folder
+while not os.path.exists(os.path.join(project_root, 'data')):
+    project_root = os.path.dirname(project_root)
+    if project_root == os.path.dirname(project_root): # Reached the filesystem root
+        raise FileNotFoundError("Could not find the project's 'data' directory. Please check the folder structure.")
+
+print(f"Successfully identified project root at: {project_root}")
+
+
+# Source directory where all modified PNGs/JPGs are stored
+source_dir = os.path.join(project_root, 'data', 'mri_image_modified')
+
+# Target directory for the new, clean dataset
+target_dir = os.path.join(project_root, 'data', 'sij_analysis')
+
+# Define source sub-folders based on your directory tree
+as_sij_source_folder = 'png_AS_sij'
+healthy_sij_source_folder = 'png_healthy_sij'
+
+# Define target sub-folders for the clean dataset
+as_sij_target_folder = os.path.join(target_dir, 'AS_SIJ')
+healthy_sij_target_folder = os.path.join(target_dir, 'Healthy_SIJ')
+
+# --- 1. Clean and Create Target Directory ---
+if os.path.exists(target_dir):
+    print(f"Target directory '{target_dir}' already exists. Removing it for a clean start.")
+    shutil.rmtree(target_dir)
+os.makedirs(as_sij_target_folder)
+os.makedirs(healthy_sij_target_folder)
+print(f"Successfully created clean target directory structure at: '{target_dir}'")
+
+# --- 2. Copy AS Sacroiliac Joint (SIJ) Images ---
+source_as_path = os.path.join(source_dir, as_sij_source_folder)
+if not os.path.isdir(source_as_path):
+    raise FileNotFoundError(f"CRITICAL ERROR: Source folder for AS SIJ not found at: {source_as_path}")
+
+# Your AS SIJ files are in .png format
+as_files = glob.glob(os.path.join(source_as_path, 'SIJ_*.png'))
+if not as_files:
+    print(f"WARNING: No AS SIJ .png files were found in {source_as_path}. Please check the folder content.")
+else:
+    for f in as_files:
+        shutil.copy(f, as_sij_target_folder)
+    print(f"Successfully copied {len(as_files)} AS SIJ images to '{as_sij_target_folder}'")
+
+# --- 3. Copy Healthy Sacroiliac Joint (SIJ) Images ---
+source_healthy_path = os.path.join(source_dir, healthy_sij_source_folder)
+if not os.path.isdir(source_healthy_path):
+    raise FileNotFoundError(f"CRITICAL ERROR: Source folder for Healthy SIJ not found at: {source_healthy_path}")
+
+# Your Healthy SIJ files are in .jpg format
+healthy_files = glob.glob(os.path.join(source_healthy_path, '*.jpg'))
+if not healthy_files:
+    print(f"WARNING: No Healthy SIJ .jpg files were found in {source_healthy_path}. Please check the folder content.")
+else:
+    for f in healthy_files:
+        shutil.copy(f, healthy_sij_target_folder)
+    print(f"Successfully copied {len(healthy_files)} Healthy SIJ images to '{healthy_sij_target_folder}'")
+
+print("\n--- Dataset Preparation Complete! ---")
+print(f"Your clean, analysis-ready dataset is now located at: '{target_dir}'")
+print("You may now proceed to run 'scripts/run_sij_analysis.py'.")-e 
+--- End of file: ./new_mri/prepare_sij_dataset.py ---
+
+
