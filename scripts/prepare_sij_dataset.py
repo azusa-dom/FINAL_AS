@@ -1,27 +1,18 @@
-# FILE: scripts/prepare_sij_dataset.py
+# FILE: scripts/new_mri/prepare_sij_dataset.py
 # PURPOSE: To create a clean, analysis-ready dataset containing only Sacroiliac Joint (SIJ) images.
-# VERSION: 2.0 - Corrected Path Logic
+# VERSION: 3.0 - Definitive Path Logic
 
 import os
 import shutil
 import glob
 
-print("--- Starting Clean Sacroiliac Joint (SIJ) Dataset Preparation (v2.0) ---")
+print("--- Starting Clean Sacroiliac Joint (SIJ) Dataset Preparation (v3.0) ---")
 
 # --- Configuration ---
-# CORRECTED PATH LOGIC: This logic now correctly finds the project root
-# by searching upwards from the script's location until it finds the 'data' directory.
-# This makes it robust to being saved in sub-folders.
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = current_dir
-# Keep going up one directory until we are in the main project folder
-while not os.path.exists(os.path.join(project_root, 'data')):
-    project_root = os.path.dirname(project_root)
-    if project_root == os.path.dirname(project_root): # Reached the filesystem root
-        raise FileNotFoundError("Could not find the project's 'data' directory. Please check the folder structure.")
-
-print(f"Successfully identified project root at: {project_root}")
-
+# DEFINITIVE PATH LOGIC: Assumes this script is in a subfolder of 'scripts'
+# The project root is two levels up from this file.
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+print(f"Project root identified as: {project_root}")
 
 # Source directory where all modified PNGs/JPGs are stored
 source_dir = os.path.join(project_root, 'data', 'mri_image_modified')
@@ -50,7 +41,6 @@ source_as_path = os.path.join(source_dir, as_sij_source_folder)
 if not os.path.isdir(source_as_path):
     raise FileNotFoundError(f"CRITICAL ERROR: Source folder for AS SIJ not found at: {source_as_path}")
 
-# Your AS SIJ files are in .png format
 as_files = glob.glob(os.path.join(source_as_path, 'SIJ_*.png'))
 if not as_files:
     print(f"WARNING: No AS SIJ .png files were found in {source_as_path}. Please check the folder content.")
@@ -64,7 +54,6 @@ source_healthy_path = os.path.join(source_dir, healthy_sij_source_folder)
 if not os.path.isdir(source_healthy_path):
     raise FileNotFoundError(f"CRITICAL ERROR: Source folder for Healthy SIJ not found at: {source_healthy_path}")
 
-# Your Healthy SIJ files are in .jpg format
 healthy_files = glob.glob(os.path.join(source_healthy_path, '*.jpg'))
 if not healthy_files:
     print(f"WARNING: No Healthy SIJ .jpg files were found in {source_healthy_path}. Please check the folder content.")
@@ -75,4 +64,4 @@ else:
 
 print("\n--- Dataset Preparation Complete! ---")
 print(f"Your clean, analysis-ready dataset is now located at: '{target_dir}'")
-print("You may now proceed to run 'scripts/run_sij_analysis.py'.")
+print("You may now proceed to run the analysis script.")
