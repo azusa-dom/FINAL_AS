@@ -1,232 +1,223 @@
 
-# Dual‐Modality AI Framework for Ankylosing Spondylitis Diagnosis Independent Validation on Clinical and Imaging Cohorts
+# FINAL_AS – Dual-Modality AI Framework  
+_Real-World Ankylosing Spondylitis (AS) Diagnosis from MRI & Clinical Data_
+
+> **MRI pipeline × Tabular (lab + demographics) pipeline**  
+> Reproducible • Calibrated • Fully interpretable • Fusion-ready
 
 ---
 
-## 📖 Overview
-
-This repository implements a **dual‐pathway**, modular AI framework for diagnosing axial spondyloarthritis (AxSpA, or Ankylosing Spondylitis, AS) under real‐world, unpaired data constraints. It comprises:
-
-1. **Clinical Pipeline**  
-   - End-to-end preprocessing, balancing, and fold‐wise data splits for a large structured cohort (_N_ = 4 254).  
-   - Prepares stratified train/validation CSVs with imputation, encoding, scaling, and SMOTE oversampling.
-
-2. **Imaging Pipeline**  
-   - Conversion of MRI volumes (DICOM/NIfTI/H5) to 2D PNG slices.  
-   - ResNet-18 feature extraction + subject-level aggregation.  
-   - Logistic Regression with GroupKFold/LOOCV, bootstrap CIs & permutation testing.  
-   - Grad-CAM and t-SNE for interpretability and visualization.
-
-3. **Visualization & Calibration**  
-   - Publication-quality ROC, PR, calibration & probability‐distribution plots.  
-   - Calibration metrics (ECE, Brier score) and temperature-scaling.
-
-![Pipeline Overview](./docs/pipeline.png)
-
----
-
-## 📂 Repository Structure
+## 📁 Repository Layout
 
 ```
 
-.
-├── scripts/
-│   ├── preprocess\_clinical.py        # Clinical data cleaning, feature‐engineering & fold CSVs
-│   ├── create\_balanced\_data.py       # Excel → balanced CSV (legacy / alternative)
-│   ├── nifti\_to\_png.py               # Batch export NIfTI → PNG slices
-│   ├── h5\_to\_png.py                  # Batch export HDF5 → PNG slices
-│   ├── mri\_bootstrap\_auc\_group.py    # MRI GroupKFold + bootstrap AUC & 95% CI
-│   ├── mri\_subject\_level\_auc.py      # Subject-level AUC (LOOCV/KFold + bootstrap)
-│   ├── mri\_permutation\_test\_full.py  # MRI LOOCV + permutation‐test p-value
-│   ├── linear\_probe\_sij.py           # SIJ “linear‐probe” LOOCV + permutation test
-│   ├── plot\_tsne\_sci.py              # High-res t-SNE visualization of MRI embeddings
-│   └── generate\_publication\_plots.py # Publication-grade ROC/PR/Calib/ConfMat & hist plots
+FINAL\_AS/
+├── data/                  # ⚠ ignored by Git – put raw data here
+│   ├── mri\_AS/            # AS patient MRI
+│   ├── mri\_health/        # healthy controls
+│   └── raw\_lab\_data/      # CSV / XLSX with clinical features
 │
-├── data/                             # (not committed) place raw clinical CSV & MRI volumes here
-│   ├── clinical\_raw\.csv
-│   ├── mri\_niftis/                   # DICOM/NIfTI files
-│   └── mri\_h5/                       # optional HDF5 files
+├── scripts/               # runnable pipeline scripts (entry points)
+│   ├── clinical/          # tabular preprocessing / balancing
+│   ├── mri/               # MRI sub-modules
+│   │   ├── conversion/    # DICOM / H5 → PNG / NIfTI
+│   │   ├── preprocessing/ # bias-field, ROI, slice selection
+│   │   ├── analysis/      # AUC, bootstrap, permutation test
+│   │   ├── gradcam/       # CAM generation (AS vs healthy)
+│   │   ├── visualization/ # t-SNE / UMAP / KDE plots
+│   │   └── run/           # one-click orchestration
+│   ├── postprocess/       # SHAP + Decision Curve Analysis
+│   └── unused/            # archived or experimental utilities
 │
-├── results/                          # Outputs: fold CSVs, model predictions, plots…
-│   ├── clinical\_folds/
-│   ├── clinical\_preds/
-│   └── mri\_outputs/
+├── src/                   # reusable library code (importable as `final_as`)
+│   ├── core/              # dataset & evaluation helpers
+│   ├── models/            # CNN / MLP / fusion head definitions
+│   ├── training/          # training loops for each modality
+│   ├── inference/         # model inference / prediction
+│   ├── preprocessing/     # fold splits etc.
+│   ├── feature\_extraction/
+│   ├── analysis/          # MRI feature analytics
+│   ├── evaluation/        # bootstrap AUC & AP
+│   └── utils/             # generic helpers
 │
-├── docs/
-│   └── pipeline.png                  # Diagram: “Data Processing Pipeline for Multimodal AS Diagnostics”
+├── checkpoints/ 🔒        # \*.pth weights (git-ignored)
+├── results/               # ready-to-publish outputs
+│   ├── clinical/ …        # metrics, SHAP, calibrated curves
+│   └── mri/ …             # t-SNE, Grad-CAM, etc.
 │
-├── requirements.txt                  # `pip install -r requirements.txt`
-└── README.md
+├── requirements.txt       # Python >=3.10 dependency lock
+├── LICENSE                # MIT
+└── README.md              # ← you are here
 
 ````
 
 ---
 
-## 🚀 Installation
+## 👩‍🔬 Method Highlights
 
-1. **Clone this repo**  
-   ```bash
-   git clone https://github.com/azusa-dom/FINAL_AS.git
-   cd FINAL_AS
+| Modality | Samples / Subjects | Core model | Calibration | Interpretability |
+|----------|-------------------|------------|-------------|------------------|
+| **Clinical** | 4 254 cases, 27 features | 2-layer MLP (ClinicalNet) | Temperature scaling (ECE 0.021) | SHAP + Decision Curve |
+| **MRI** | 8 subjects, 39 slices | ResNet-18 frozen encoder → logistic probe | logistic probability | Grad-CAM, t-SNE |
+
+Pipelines are **fully independent** (no paired requirement) yet emit **comparable, calibrated probabilities** – enabling late fusion.
+
+---
+
+## ⚙ Environment Setup
+
+```bash
+conda create -n final_as python=3.10
+conda activate final_as
+pip install -r requirements.txt
+
+# install the right CUDA build of PyTorch
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 ````
 
-2. **Create & activate a virtual environment**
+---
 
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
+## 📦 Data Preparation
 
-3. **Install dependencies**
+```
+data/
+├── mri_AS/patient001/*.png              # or DICOM/NIfTI if you run conversion first
+├── mri_health/health001/subjA/*.png
+└── raw_lab_data/Raw_Lab_Dataset.csv     # 27 columns as described in the paper
+```
 
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-> **Requirements snapshot**:
-> `torch`, `torchvision`, `scikit-learn`, `pandas`, `numpy`, `matplotlib`, `seaborn`,
-> `nibabel`, `h5py`, `Pillow`, `tqdm`, `imbalanced-learn`, `shap`
+Large or sensitive data remain local; `.gitignore` excludes the whole `data/` directory.
 
 ---
 
-## 🛠️ Usage
+## 🚀 Quick Start
 
-### 1. Clinical Pipeline
+### 1 — Clinical pipeline
 
-1. **Preprocess & split**
+```bash
+# preprocessing + SMOTE fold generation
+python scripts/clinical/preprocess_clinical.py \
+       --csv data/raw_lab_data/Raw_Lab_Dataset.csv
 
-   ```bash
-   python scripts/preprocess_clinical.py \
-     path/to/clinical_raw.csv \
-     results/clinical_folds \
-     --n_splits 5
-   ```
+# training + calibration
+python src/training/train.py \
+       --folds results/clinical/clinical_data_fold
+```
 
-   * Generates `fold_{0..4}_train.csv` and `fold_{0..4}_val.csv`.
-
-2. **Train & evaluate your ClinicalNet model**
-
-   > Use your preferred training script (e.g., `train_clinical.py`) on each `fold_*_train.csv`,
-   > then save validation predictions to `results/clinical_preds/fold_{i}_predictions.csv`.
-
-3. **Generate publication-quality plots**
-
-   ```bash
-   python scripts/generate_publication_plots.py \
-     --preds-dir results/clinical_preds
-   ```
-
-   * Outputs ROC, PR, calibration, confusion matrix & probability‐distribution figures under `results/clinical_preds/publication_plots/`.
-
-### 2. Imaging Pipeline
-
-1. **Convert volumes to PNG slices**
-
-   * **NIfTI → PNG** (central slice only):
-
-     ```bash
-     python scripts/nifti_to_png.py \
-       data/mri_niftis \
-       data/mri_slices_png \
-       --central-only
-     ```
-   * **HDF5 → PNG**:
-
-     ```bash
-     python scripts/h5_to_png.py \
-       data/mri_h5 \
-       data/mri_slices_png
-     ```
-
-2. **Run MRI linear-probe / bootstrap / permutation tests**
-
-   * **GroupKFold + bootstrap AUC**
-
-     ```bash
-     python scripts/mri_bootstrap_auc_group.py \
-       --data-dir data/mri_slices_png \
-       --n-splits 5 \
-       --n-bootstrap 2000 \
-       --batch-size 16 \
-       --seed 42
-     ```
-   * **Subject-level LOOCV/KFold AUC**
-
-     ```bash
-     python scripts/mri_subject_level_auc.py \
-       --data-dir data/mri_slices_png \
-       --n-splits 8 \
-       --n-bootstrap 2000
-     ```
-   * **Permutation test (LOOCV)**
-
-     ```bash
-     python scripts/mri_permutation_test_full.py \
-       --data-dir data/mri_slices_png \
-       --n-perm 5000
-     ```
-   * **SIJ linear probe (6 AS vs 2 healthy)**
-
-     ```bash
-     python scripts/linear_probe_sij.py \
-       --sij-as-dir data/sij_as_png \
-       --sij-healthy-dir data/sij_healthy_png \
-       --n-perm 5000
-     ```
-
-3. **Visualize embeddings & attention**
-
-   * **t-SNE plot**
-
-     ```bash
-     python scripts/plot_tsne_sci.py
-     ```
-   * **Grad-CAM**
-
-     * (Implemented inline in the fine-tuning notebook or script—see comments.)
+Key outputs appear in `results/clinical/` (metrics CSV, SHAP plots, calibrated curves).
 
 ---
 
-## 🧪 Evaluation & Metrics
+### 2 — MRI pipeline
 
-* **Discrimination**: AUROC, AUPRC
-* **Calibration**: Brier Score, Expected Calibration Error (ECE), Temperature Scaling
-* **Statistical Tests**: Bootstrap 95% CI, Permutation p-values
-* **Interpretability**: SHAP (clinical), Grad-CAM (imaging)
+```bash
+# optional DICOM → PNG conversion
+python scripts/mri/conversion/mri_convert_dicom_to_png.py \
+       --input data/mri_AS \
+       --output data/mri_images_png
+
+# slice-level embedding + bootstrap CI
+python scripts/mri/analysis/mri_eval_auc_bootstrap.py \
+       --png_dir data/mri_images_png
+```
+
+Grad-CAM heat-maps:
+
+```bash
+python scripts/mri/gradcam/As_run_sij_gradcam_analysis.py \
+       --png_dir data/mri_images_png
+```
+
+All figures land in `results/mri/`.
 
 ---
 
-## 📄 Citation
+## 🔍 How to Inspect Results
 
-If you use this framework, please cite our manuscript:
+```bash
+# Clinical ROC curve
+open results/clinical/data_results/sci_roc_curve.png
 
-> **A Dual‐Modality AI Framework for Ankylosing Spondylitis Diagnosis Under Real‐World Data Constraints: Independent Validation on Clinical and Imaging Cohorts**
-> *\[Authors et al.], Journal/Preprint (Year).*
+# MRI t-SNE embedding
+open results/mri/embedding_viz/tsne_slice_level.png
+
+# Example Grad-CAM overlay
+open results/mri/grad_cam/as/_slice03_gradcam.png
+```
+
+---
+
+## 🔬 Interpretability Modules
+
+| Script                                        | Output                  |
+| --------------------------------------------- | ----------------------- |
+| `scripts/postprocess/shap_compute_summary.py` | global SHAP values      |
+| `.../shap_compute_dca.py`                     | decision curve analysis |
+| `scripts/mri/gradcam/*.py`                    | attention heat-maps     |
+
+---
+
+## 🔗 Fusion (optional)
+
+`src/training/train_late_fusion.py` already implements:
+
+* Probability weighted average
+* Meta-learner stacking
+
+Simply point it to the calibrated CSVs from both modalities.
+
+---
+
+## 🛠 Tips & Troubleshooting
+
+| Issue                    | Fix                                                      |
+| ------------------------ | -------------------------------------------------------- |
+| CUDA OOM                 | decrease `--batch_size` in preprocessing & train scripts |
+| Results slightly vary    | set `--seed 42` everywhere                               |
+| Missing ImageNet weights | first `python -m torch.hub` or allow auto-download       |
 
 ---
 
 ## 🤝 Contributing
 
-* ✅ Fork & branch under `feature/*`
-* ✅ Add tests or examples for new functionality
-* ✅ Update `README.md` & docs
-* ✅ Submit a pull request!
+1. Fork → branch `feature/<name>`
+2. Run `black . && isort .` before PR
+3. Include minimal working example & docstring
 
 ---
 
 ## 📜 License
 
-This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
+Released under the MIT License.
+
+---
+
+## 📑 Citation
+
+```bibtex
+@article{FinalAS2025,
+  title   = {A Dual-Modality AI Framework for Ankylosing Spondylitis Diagnosis under Real-World Data Constraints},
+  author  = {Your Name et al.},
+  journal = {Computers in Biology and Medicine},
+  year    = {2025},
+  doi     = {10.XXXX/xxxx}
+}
+```
+
+---
+
+### Contact
+
+Open an issue or drop an e-mail: **[you@example.com](mailto:you@example.com)** 🙌
 
 ```
 
-**Is there any code or asset you’re missing before running these scripts?**  
-- Place your **raw clinical CSV** in `data/clinical_raw.csv`.  
-- Place your **MRI volumes** in `data/mri_niftis/` (or H5 files in `data/mri_h5/`).  
-- Ensure the pipeline diagram (`docs/pipeline.png`) is available or adjust the path in this README.
+### How to use  
+1. Replace placeholders (author, DOI, email).  
+2. Save as `README.md` in your repo root (`FINAL_AS/`).  
+
+Need further tweaks (badges, CI status, GIF demo)? – just let me know!
 ```
-
-
 # REFERENCES
 
   - Ai, F., Zhang, W., Liu, H., Song, W., Wu, H., Han, Y., et al. (2012) Value of diffusion-weighted quantification for MRI assessment of sacroiliac joints in early diagnosis of ankylosing spondylitis. *Rheumatology International*, **32**(12), pp.4009–4015. [https://doi.org/10.1007/s00296-011-2253-0(https://doi.org/10.1007/s00296-011-2253-0)
