@@ -1,5 +1,5 @@
 
-# FINAL_AS – Dual-Modality AI Framework  
+# Dual-Modality AI Framework  
 _Real-World Ankylosing Spondylitis (AS) Diagnosis from MRI & Clinical Data_
 
 > **MRI pipeline × Tabular (lab + demographics) pipeline**  
