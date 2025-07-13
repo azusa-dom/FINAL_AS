@@ -1,161 +1,231 @@
 
+# Dual‐Modality AI Framework for Ankylosing Spondylitis Diagnosis Independent Validation on Clinical and Imaging Cohorts
 
-# 🧠 Ankylosing Spondylitis Diagnosis Using Independent Clinical and MRI Cohorts
+---
 
-**A validated machine learning model on structured clinical data and an exploratory deep feature study on independent MRI samples.**
+## 📖 Overview
 
------
+This repository implements a **dual‐pathway**, modular AI framework for diagnosing axial spondyloarthritis (AxSpA, or Ankylosing Spondylitis, AS) under real‐world, unpaired data constraints. It comprises:
 
-## 🔍 Overview
+1. **Clinical Pipeline**  
+   - End-to-end preprocessing, balancing, and fold‐wise data splits for a large structured cohort (_N_ = 4 254).  
+   - Prepares stratified train/validation CSVs with imputation, encoding, scaling, and SMOTE oversampling.
 
-This project implements a dual-cohort strategy for the early diagnosis of Ankylosing Spondylitis (AS):
+2. **Imaging Pipeline**  
+   - Conversion of MRI volumes (DICOM/NIfTI/H5) to 2D PNG slices.  
+   - ResNet-18 feature extraction + subject-level aggregation.  
+   - Logistic Regression with GroupKFold/LOOCV, bootstrap CIs & permutation testing.  
+   - Grad-CAM and t-SNE for interpretability and visualization.
 
-  - 🧪 **Clinical Pipeline**: A feed-forward neural network (FFNN) trained on a structured dataset of 4,254 records achieves an **AUROC of 0.922**.
-  - 🧠 **MRI Pipeline**: A deep learning feasibility study on an independent, small-sample MRI cohort (N=8), with feature visualization via t-SNE and Grad-CAM.
-  - ✅ The two pipelines are fully decoupled and independently evaluated, reflecting real-world data availability scenarios.
+3. **Visualization & Calibration**  
+   - Publication-quality ROC, PR, calibration & probability‐distribution plots.  
+   - Calibration metrics (ECE, Brier score) and temperature-scaling.
 
------
+![Pipeline Overview](./docs/pipeline.png)
 
-## 📚 Motivation and Novelty
+---
 
-  - The early diagnosis of AS remains clinically challenging. [cite: 241, 242 While laboratory and MRI data both offer diagnostic insights, real-world clinical practice often lacks paired multimodal datasets. [cite: 253, 280
-  - This study independently validates:
-    1.  A high-performance diagnostic model on large-scale clinical data.
-    2.  The discriminability of deep features in a separate MRI cohort using visualization and statistical testing.
+## 📂 Repository Structure
 
------
-
-## 🗂️ Data Sources
-
-| Cohort | N | Content | Purpose |
-|---|---|---|---|
-| Clinical | 4,254 | 27 structured variables (labs, HLA-B27) [cite: 303, 328 | FFNN model training & evaluation |
-| MRI (public) | 8 | SIJ MRI slices (6 AS, 2 healthy) | Deep feature feasibility + Grad-CAM |
-
------
-
-## 🧰 Methods
-
-### 🔬 1. Clinical Pipeline
-
-  - **Script**: `scripts/preprocess_final.py`
-  - **Features**: 27 structured variables, including CRP, ESR, BASDAI, and HLA-B27. [cite: 328
-  - **Preprocessing**:
-      - Median imputation for continuous features. [cite: 330
-      - Mode imputation and one-hot encoding for categorical variables. [cite: 330, 332
-      - `log1p` transformation and `RobustScaler` for skewed inflammation markers (ESR, CRP).
-  - **Model**: Feedforward Neural Network (FFNN).
-      - Architecture: 27 → 256 → 128 → 64 → 1.
-      - ReLU activation, Dropout(0.2), and Sigmoid output.
-  - **Training**:
-      - Optimizer: AdamW (lr=1e-3, weight\_decay=1e-4).
-      - Batch size: 128, Epochs: 30.
-      - 5-fold stratified cross-validation. [cite: 199
-      - SMOTE applied within training folds to handle minor imbalances.
-  - **Calibration**:
-      - Temperature scaling (T ≈ 1.13) for probability calibration.
-
-<!-- end list -->
-
-```bash
-python src/train.py \
-  --config configs/clinical_ffnn.yaml
 ```
 
------
+.
+├── scripts/
+│   ├── preprocess\_clinical.py        # Clinical data cleaning, feature‐engineering & fold CSVs
+│   ├── create\_balanced\_data.py       # Excel → balanced CSV (legacy / alternative)
+│   ├── nifti\_to\_png.py               # Batch export NIfTI → PNG slices
+│   ├── h5\_to\_png.py                  # Batch export HDF5 → PNG slices
+│   ├── mri\_bootstrap\_auc\_group.py    # MRI GroupKFold + bootstrap AUC & 95% CI
+│   ├── mri\_subject\_level\_auc.py      # Subject-level AUC (LOOCV/KFold + bootstrap)
+│   ├── mri\_permutation\_test\_full.py  # MRI LOOCV + permutation‐test p-value
+│   ├── linear\_probe\_sij.py           # SIJ “linear‐probe” LOOCV + permutation test
+│   ├── plot\_tsne\_sci.py              # High-res t-SNE visualization of MRI embeddings
+│   └── generate\_publication\_plots.py # Publication-grade ROC/PR/Calib/ConfMat & hist plots
+│
+├── data/                             # (not committed) place raw clinical CSV & MRI volumes here
+│   ├── clinical\_raw\.csv
+│   ├── mri\_niftis/                   # DICOM/NIfTI files
+│   └── mri\_h5/                       # optional HDF5 files
+│
+├── results/                          # Outputs: fold CSVs, model predictions, plots…
+│   ├── clinical\_folds/
+│   ├── clinical\_preds/
+│   └── mri\_outputs/
+│
+├── docs/
+│   └── pipeline.png                  # Diagram: “Data Processing Pipeline for Multimodal AS Diagnostics”
+│
+├── requirements.txt                  # `pip install -r requirements.txt`
+└── README.md
 
-### 🧠 2. MRI Feasibility Pipeline
+````
 
-  - **Feature Extraction**:
-      - A pretrained ResNet-18 is used to extract 512-d slice-level features.
-  - **Aggregation**:
-      - Slice-level features are aggregated per subject via mean pooling. [cite: 43, 56, 147
-  - **Evaluation**:
-      - **Classifier**: Logistic Regression. [cite: 14, 44, 53, 72
-      - **Cross-validation**: Leave-One-Out CV (LOOCV). [cite: 44, 47, 52, 68
-      - **Metric**: AUC with a 95% CI via 2000x bootstrap.
-      - **Permutation Test**: N=5000 to assess statistical separation of features. [cite: 48, 57, 75, 138
-  - **Visualization**:
-      - t-SNE, UMAP, and PCA for dimensionality reduction.
-      - Grad-CAM for model interpretability on SIJ slices.
+---
 
-<!-- end list -->
+## 🚀 Installation
 
-```bash
-python scripts/mri_subject_level_auc.py \
-  --data-dir data/mri_image_modified \
-  --n-splits 8 \
-  --n-bootstrap 2000
+1. **Clone this repo**  
+   ```bash
+   git clone https://github.com/azusa-dom/FINAL_AS.git
+   cd FINAL_AS
+````
+
+2. **Create & activate a virtual environment**
+
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
+3. **Install dependencies**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+> **Requirements snapshot**:
+> `torch`, `torchvision`, `scikit-learn`, `pandas`, `numpy`, `matplotlib`, `seaborn`,
+> `nibabel`, `h5py`, `Pillow`, `tqdm`, `imbalanced-learn`, `shap`
+
+---
+
+## 🛠️ Usage
+
+### 1. Clinical Pipeline
+
+1. **Preprocess & split**
+
+   ```bash
+   python scripts/preprocess_clinical.py \
+     path/to/clinical_raw.csv \
+     results/clinical_folds \
+     --n_splits 5
+   ```
+
+   * Generates `fold_{0..4}_train.csv` and `fold_{0..4}_val.csv`.
+
+2. **Train & evaluate your ClinicalNet model**
+
+   > Use your preferred training script (e.g., `train_clinical.py`) on each `fold_*_train.csv`,
+   > then save validation predictions to `results/clinical_preds/fold_{i}_predictions.csv`.
+
+3. **Generate publication-quality plots**
+
+   ```bash
+   python scripts/generate_publication_plots.py \
+     --preds-dir results/clinical_preds
+   ```
+
+   * Outputs ROC, PR, calibration, confusion matrix & probability‐distribution figures under `results/clinical_preds/publication_plots/`.
+
+### 2. Imaging Pipeline
+
+1. **Convert volumes to PNG slices**
+
+   * **NIfTI → PNG** (central slice only):
+
+     ```bash
+     python scripts/nifti_to_png.py \
+       data/mri_niftis \
+       data/mri_slices_png \
+       --central-only
+     ```
+   * **HDF5 → PNG**:
+
+     ```bash
+     python scripts/h5_to_png.py \
+       data/mri_h5 \
+       data/mri_slices_png
+     ```
+
+2. **Run MRI linear-probe / bootstrap / permutation tests**
+
+   * **GroupKFold + bootstrap AUC**
+
+     ```bash
+     python scripts/mri_bootstrap_auc_group.py \
+       --data-dir data/mri_slices_png \
+       --n-splits 5 \
+       --n-bootstrap 2000 \
+       --batch-size 16 \
+       --seed 42
+     ```
+   * **Subject-level LOOCV/KFold AUC**
+
+     ```bash
+     python scripts/mri_subject_level_auc.py \
+       --data-dir data/mri_slices_png \
+       --n-splits 8 \
+       --n-bootstrap 2000
+     ```
+   * **Permutation test (LOOCV)**
+
+     ```bash
+     python scripts/mri_permutation_test_full.py \
+       --data-dir data/mri_slices_png \
+       --n-perm 5000
+     ```
+   * **SIJ linear probe (6 AS vs 2 healthy)**
+
+     ```bash
+     python scripts/linear_probe_sij.py \
+       --sij-as-dir data/sij_as_png \
+       --sij-healthy-dir data/sij_healthy_png \
+       --n-perm 5000
+     ```
+
+3. **Visualize embeddings & attention**
+
+   * **t-SNE plot**
+
+     ```bash
+     python scripts/plot_tsne_sci.py
+     ```
+   * **Grad-CAM**
+
+     * (Implemented inline in the fine-tuning notebook or script—see comments.)
+
+---
+
+## 🧪 Evaluation & Metrics
+
+* **Discrimination**: AUROC, AUPRC
+* **Calibration**: Brier Score, Expected Calibration Error (ECE), Temperature Scaling
+* **Statistical Tests**: Bootstrap 95% CI, Permutation p-values
+* **Interpretability**: SHAP (clinical), Grad-CAM (imaging)
+
+---
+
+## 📄 Citation
+
+If you use this framework, please cite our manuscript:
+
+> **A Dual‐Modality AI Framework for Ankylosing Spondylitis Diagnosis Under Real‐World Data Constraints: Independent Validation on Clinical and Imaging Cohorts**
+> *\[Authors et al.], Journal/Preprint (Year).*
+
+---
+
+## 🤝 Contributing
+
+* ✅ Fork & branch under `feature/*`
+* ✅ Add tests or examples for new functionality
+* ✅ Update `README.md` & docs
+* ✅ Submit a pull request!
+
+---
+
+## 📜 License
+
+This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
+
 ```
 
------
-
-## 📈 Evaluation Metrics
-
-| Metric | Value | CI / Details |
-|---|---|---|
-| AUROC | 0.922 | 95% CI: 0.913–0.930 |
-| AUPRC | 0.889 | 95% CI: 0.873–0.904 |
-| Brier Score | 0.138 [cite: 503, 512 | Post-calibration |
-| ECE₁₀ | 0.021 [cite: 503, 512 | Expected Calibration Error |
-| DCA Net Benefit | +0.18 (at p=0.3) [cite: 236, 393 | Decision Curve Analysis |
-| MRI AUC | \~0.995 (LOOCV) | On N=8 independent cohort |
-| Permutation Test | p = 0.907 | Centroid distance (non-significant) |
-
------
-
-## 🎨 Visual Outputs
-
-| Figure | File | Description |
-|---|---|---|
-| ROC Curve | `sci_roc_curve.png` | Clinical model ROC |
-| PR Curve | `sci_pr_curve.png` | Precision–Recall |
-| Calibration Curve | `sci_calibration_curve.png` | Post temperature-scaling |
-| Confusion Matrix | `sci_confusion_matrix.png` | 2x2 heatmap |
-| SHAP Summary | `shap_summary.png` | Top feature contributors |
-| t-SNE (MRI features) | `tsne_slice_level.png` | MRI feature space |
-| Grad-CAM (samples) | `*_gradcam_academic.png` | Heatmaps over SIJ slices |
-
------
-
-## 🚀 Run Instructions
-
-### One-click execution:
-
-```bash
-bash run_all.sh
+**Is there any code or asset you’re missing before running these scripts?**  
+- Place your **raw clinical CSV** in `data/clinical_raw.csv`.  
+- Place your **MRI volumes** in `data/mri_niftis/` (or H5 files in `data/mri_h5/`).  
+- Ensure the pipeline diagram (`docs/pipeline.png`) is available or adjust the path in this README.
 ```
 
-### Manual step-by-step:
-
-```bash
-# Clinical Preprocessing
-python scripts/preprocess_clinical.py data/clinical_raw.csv processed_data/
-
-# FFNN Training
-python src/train.py --config configs/clinical_ffnn.yaml
-
-# MRI AUC + Permutation Test
-python scripts/mri_subject_level_auc.py --data-dir data/mri_image_modified
-python scripts/mri_permutation_test_full.py --data-dir data/mri_image_modified
-
-# Grad-CAM Visualization
-python scripts/plot_gradcam_academic.py
-```
-
------
-
-## 🧾 Citation
-
-Ankylosing Spondylitis Diagnosis Using Independent Clinical and MRI Cohorts: A Validated Machine Learning Model and a Deep Feature Feasibility Study. *Under Review* (2025).
-
-This repository supports the full reproducibility of all experiments and visualizations presented in the manuscript.
-
------
-
-## 📄 License
-
-This project is released under the MIT License.
 
 # REFERENCES
 
