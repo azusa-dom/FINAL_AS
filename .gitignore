@@ -1,11 +1,61 @@
+# Python 编译缓存
 __pycache__/
 *.pyc
 *.pyo
 *.so
+
+# Jupyter notebook 检查点
+.ipynb_checkpoints/
+
+# 操作系统 & IDE 杂项
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# PyTorch & TensorFlow Checkpoints
 checkpoints/
+*.ckpt
+*.pth
+*.pt
+*.hdf5
+
+# 日志文件
 logs/
-results/
+*.log
+*.out
+
+# 大文件（原始数据、模型中间层）
 data/
 *.h5
-*.nii*
-.DS_Store
+*.nii
+*.nii.gz
+*.npy
+*.npz
+*.zip
+
+# 可视化结果默认不提交，但允许关键输出
+results/
+!results/final_run/
+!results/final_run/**
+!results/grad_cam/
+!results/grad_cam/**
+!results/mri_viz/
+!results/mri_viz/**
+
+# 临时测试/调试生成文件
+*.bak
+*.tmp
+*.old
+
+# VS Code 默认配置（可选）
+*.code-workspace
+
+# 环境文件（如虚拟环境）
+.env/
+venv/
+ENV/
+env/
+
+# pip freeze 生成文件（如果你用 conda 可忽略）
+pip-selfcheck.json
