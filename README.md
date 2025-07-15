@@ -1,5 +1,5 @@
 
-# FINAL_AS – Dual-Modality AI Framework  
+# Dual-Modality AI Framework  
 _Real-World Ankylosing Spondylitis (AS) Diagnosis from MRI & Clinical Data_
 
 > **MRI pipeline × Tabular (lab + demographics) pipeline**  
@@ -192,32 +192,13 @@ Released under the MIT License.
 
 ---
 
-## 📑 Citation
-
-```bibtex
-@article{FinalAS2025,
-  title   = {A Dual-Modality AI Framework for Ankylosing Spondylitis Diagnosis under Real-World Data Constraints},
-  author  = {Your Name et al.},
-  journal = {Computers in Biology and Medicine},
-  year    = {2025},
-  doi     = {10.XXXX/xxxx}
-}
-```
-
----
-
 ### Contact
 
-Open an issue or drop an e-mail: **[you@example.com](mailto:you@example.com)** 🙌
+Open an issue or drop an e-mail: **[zczqzh9@ucl.ac.uk](mailto:zczqzh9@ucl.ac.uk)** 🙌
+
 
 ```
 
-### How to use  
-1. Replace placeholders (author, DOI, email).  
-2. Save as `README.md` in your repo root (`FINAL_AS/`).  
-
-Need further tweaks (badges, CI status, GIF demo)? – just let me know!
-```
 # REFERENCES
 
   - Ai, F., Zhang, W., Liu, H., Song, W., Wu, H., Han, Y., et al. (2012) Value of diffusion-weighted quantification for MRI assessment of sacroiliac joints in early diagnosis of ankylosing spondylitis. *Rheumatology International*, **32**(12), pp.4009–4015. [https://doi.org/10.1007/s00296-011-2253-0(https://doi.org/10.1007/s00296-011-2253-0)
