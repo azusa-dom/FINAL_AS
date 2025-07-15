@@ -1,0 +1,11 @@
+Patient_ID,Disease,CRP,ESR,Sex,Age
+1,Ankylosing Spondylitis,11.2,32,Male,29
+2,Osteoarthritis,4.5,12,Female,60
+3,Ankylosing Spondylitis,18.7,44,Female,35
+4,Osteoarthritis,2.1,8,Male,55
+5,Ankylosing Spondylitis,9.8,30,Female,40
+6,Osteoarthritis,6.0,20,Male,63
+7,Ankylosing Spondylitis,13.4,35,Male,38
+8,Osteoarthritis,3.9,10,Female,52
+9,Ankylosing Spondylitis,16.2,40,Female,31
+10,Osteoarthritis,5.2,18,Male,47
