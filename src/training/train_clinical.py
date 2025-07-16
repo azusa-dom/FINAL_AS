@@ -13,10 +13,10 @@ from tqdm import tqdm
 print("✅✅✅ Successfully running the FINAL, ALL-IN-ONE training script! ✅✅✅")
 
 # --- Model Definition (Included directly in this file) ---
-class SimpleMLP(nn.Module):
+class ClinicalNet(nn.Module):
     """A simple MLP with Dropout to prevent overfitting."""
     def __init__(self, input_size, hidden_size, output_size, dropout_p=0.5):
-        super(SimpleMLP, self).__init__()
+        super(ClinicalNet, self).__init__()
         self.net = nn.Sequential(
             nn.Linear(input_size, hidden_size),
             nn.ReLU(),
@@ -55,15 +55,37 @@ class ClinicalDataset(TensorDataset):
 
 def get_kfold_loaders(data_dir, id_column, label_column, n_splits=5, batch_size=32):
     loaders = []
+    all_feature_columns = None  # 用于统一列顺序和补缺
+
+    # 先读取一个 fold，记录标准列名（不含 ID 和 label）
+    first_df = pd.read_csv(os.path.join(data_dir, "fold_0_train.csv"))
+    all_feature_columns = [c for c in first_df.columns if c not in [label_column, id_column]]
+
     for i in range(n_splits):
         train_df = pd.read_csv(os.path.join(data_dir, f"fold_{i}_train.csv"))
         val_df = pd.read_csv(os.path.join(data_dir, f"fold_{i}_val.csv"))
+
+        for df in [train_df, val_df]:
+            # 补全缺失列（全填0）
+            for col in all_feature_columns:
+                if col not in df.columns:
+                    df[col] = 0.0
+            # 移除额外列，重新排序
+            kept_cols = all_feature_columns + [label_column, id_column]
+            df.drop(columns=[c for c in df.columns if c not in kept_cols], inplace=True)
+            existing_cols = [c for c in kept_cols if c in df.columns]
+            df = df[existing_cols]
+
+
+        # 创建 Dataset 和 DataLoader
         train_ds = ClinicalDataset(train_df, label_column=label_column, id_column=id_column)
         val_ds = ClinicalDataset(val_df, label_column=label_column, id_column=id_column)
         train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
         loaders.append((train_loader, val_loader))
+
     return loaders
+
 
 def get_class_weights(dataset):
     class_counts = torch.bincount(dataset.labels)
@@ -88,7 +110,7 @@ def train(args):
         sample_feats, _, _ = next(iter(train_loader))
         input_dim = sample_feats.shape[1]
 
-        model = SimpleMLP(input_size=input_dim, hidden_size=64, output_size=num_classes).to(device)
+        model = ClinicalNet(input_size=input_dim, hidden_size=64, output_size=num_classes).to(device)
 
         weights = get_class_weights(train_loader.dataset).to(device)
         criterion = nn.CrossEntropyLoss(weight=weights)

@@ -1,6 +1,0 @@
-fold,best_params,AUROC
-0,"{'clf__max_depth': None, 'clf__n_estimators': 100}",1.0
-1,"{'clf__max_depth': None, 'clf__n_estimators': 100}",1.0
-2,"{'clf__max_depth': None, 'clf__n_estimators': 100}",1.0
-3,"{'clf__max_depth': None, 'clf__n_estimators': 100}",1.0
-4,"{'clf__max_depth': None, 'clf__n_estimators': 100}",1.0
