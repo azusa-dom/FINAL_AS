@@ -17,6 +17,14 @@ import matplotlib.pyplot as plt
 import cv2
 from tqdm import tqdm
 
+import glob
+import logging
+from pathlib import Path # <--- ADDED THIS LINE!
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 # ————————————————————————————————————————————— #
 # 0) 命令行参数：可指定分析 Healthy 或 AS
 # ————————————————————————————————————————————— #
@@ -29,7 +37,7 @@ args = parser.parse_args()
 # ————————————————————————————————————————————— #
 # 1) 配置路径、增强、随机种子
 # ————————————————————————————————————————————— #
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 # 数据路径
 data_dirs = {
@@ -42,9 +50,9 @@ data_dirs = {
     ],
 }
 
-# 输出路径
-output_dir = args.out if args.out else os.path.join(project_root, "results", "grad_cam_outputs_" + args.target_class)
-os.makedirs(output_dir, exist_ok=True)
+# Output directory (will be further subdivided by class/subject)
+base_output_dir = args.out if args.out else os.path.join(project_root, "results", "gradcam")
+os.makedirs(base_output_dir, exist_ok=True)
 
 # 随机种子
 SEED = 42
@@ -86,101 +94,186 @@ class GradCAM:
         a = self.act[0]
         w = g.mean(dim=(1,2), keepdim=True)
         cam = (w * a).sum(dim=0).detach().cpu().numpy()
-        cam = np.maximum(cam, 0)
         cam = cv2.resize(cam, (x.shape[3], x.shape[2]))
+        cam = np.maximum(cam, 0)
         cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
         return cam
 
 # ————————————————————————————————————————————— #
-# 3) 加载图像
+# 3) 辅助函数：掩码查找和应用
+# ————————————————————————————————————————————— #
+
+def find_mask_for_slice(slice_path):
+    """
+    在同一目录下搜索所有包含关键词 'mask' 的文件（不区分大小写），
+    返回第一个匹配的完整路径；否则返回 None。
+    """
+    dirpath, fname = os.path.split(slice_path)
+    basename, _ = os.path.splitext(fname)
+    
+    patterns = [
+        os.path.join(dirpath, f"{basename}*mask*.*"),
+        os.path.join(dirpath, f"{basename}.mask.*")
+    ]
+
+    for pattern in patterns:
+        matches = glob.glob(pattern, recursive=False)
+        if matches:
+            return matches[0]
+    return None
+
+def apply_heatmap_overlay(original_pil_img, heatmap_np):
+    """
+    将 CAM 热图 overlay 到原图上，heatmap_np 应为与原图同尺寸的 [0,1] 浮点数组。
+    返回 overlay 后的 PIL.Image。
+    """
+    img_np_resized = np.array(original_pil_img.resize((224,224))).astype(float) / 255.0
+    heatmap_colored = plt.cm.jet(heatmap_np)[..., :3]
+    overlay_np = 0.4 * img_np_resized + 0.6 * heatmap_colored
+    overlay_np = np.clip(overlay_np, 0, 1)
+
+    return Image.fromarray((overlay_np * 255).astype(np.uint8))
+
+
+# ————————————————————————————————————————————— #
+# 4) 收集所有图像样本
 # ————————————————————————————————————————————— #
 all_images = []
-target_cls = args.target_class
-for root in data_dirs[target_cls]:
-    if not os.path.isdir(root):
-        print(f"⚠️  Warning: Directory not found: {root}", file=sys.stderr)
+# Fixed for health script to only collect Healthy data with label 0
+cls_key = args.target_class # Use target_class from args
+label = 0 if cls_key == "Healthy" else 1 # Assign label based on target_class
+
+for root_dir_path in data_dirs[cls_key]: # Iterate through target class's roots
+    root = Path(root_dir_path)
+    if not root.is_dir():
+        logger.warning(f"Directory not found: {root_dir_path}")
         continue
-    for subj in os.listdir(root):
-        subdir = os.path.join(root, subj)
-        if not os.path.isdir(subdir):
-            continue
-        for fn in os.listdir(subdir):
-            if fn.lower().endswith(('.jpg','.jpeg','.png')):
-                all_images.append({
-                    'path': os.path.join(subdir, fn),
-                    'subject': subj,
-                    'label': 0 if target_cls == 'Healthy' else 1,
-                    'cls': target_cls
-                })
+    for subj_folder in root.iterdir(): # Iterate directly over subject folders
+        if subj_folder.is_dir():
+            subject_id = subj_folder.name
+            for img_path in subj_folder.rglob("*"): # Recursively find images in subject folder
+                # Use a common set of image extensions
+                if img_path.suffix.lower() in {".png", ".jpg", ".jpeg"}:
+                    all_images.append({
+                        'path': str(img_path),
+                        'subject': subject_id,
+                        'label': label, # Assign based on target_class
+                        'cls': cls_key
+                    })
 
 if not all_images:
-    print("❌ No images found in the selected class directories.", file=sys.stderr)
+    logger.error("No images found in data directories. Please check paths and extensions.")
     sys.exit(1)
 
 # ————————————————————————————————————————————— #
-# 4) 初始化模型与层
+# 5) 初始化模型 & 目标层
 # ————————————————————————————————————————————— #
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1) # Use explicit weights version
 model.fc = nn.Linear(model.fc.in_features, 2)
 model.to(device)
 target_layer = model.layer4[-1]
 
 # ————————————————————————————————————————————— #
-# 5) 留一法训练 + Grad-CAM 三联图
+# 6) 留一法 Fine-tune + Grad-CAM 输出期刊级三联图
 # ————————————————————————————————————————————— #
-print(f"🔍 Loaded {len(all_images)} image slices across {len(set(i['subject'] for i in all_images))} subjects in class {target_cls}")
+logger.info(f"Loaded {len(all_images)} image slices across {len(set(i['subject'] for i in all_images))} subjects in class {args.target_class}.")
 subjects = sorted(set(i['subject'] for i in all_images))
 
 for subj in tqdm(subjects, desc='Subject LOOCV'):
     train_set = [i for i in all_images if i['subject'] != subj]
     test_set = [i for i in all_images if i['subject'] == subj]
+    
+    if not test_set:
+        logger.warning(f"No test images for subject {subj}, skipping LOOCV for this subject.")
+        continue
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    criterion = nn.CrossEntropyLoss()
-    model.train()
-    for epoch in range(3):
-        random.shuffle(train_set)
+    # Initialize a fresh model and optimizer for each LOOCV fold
+    fold_model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+    fold_model.fc = nn.Linear(fold_model.fc.in_features, 2)
+    fold_model.to(device)
+    fold_optimizer = torch.optim.Adam(fold_model.parameters(), lr=1e-4)
+    fold_criterion = nn.CrossEntropyLoss()
+    
+    fold_model.train()
+    for epoch in range(3): # Small number of epochs for fine-tuning
+        random.shuffle(train_set) # Shuffle training data for each epoch
         for item in train_set:
-            img = Image.open(item['path']).convert('RGB')
-            inp = train_transform(img).unsqueeze(0).to(device)
-            lbl = torch.tensor([item['label']], device=device)
-            optimizer.zero_grad()
-            out = model(inp)
-            loss = criterion(out, lbl)
-            loss.backward()
-            optimizer.step()
+            try:
+                img = Image.open(item['path']).convert('RGB')
+                inp = train_transform(img).unsqueeze(0).to(device)
+                lbl = torch.tensor([item['label']], device=device)
+                fold_optimizer.zero_grad()
+                out = fold_model(inp)
+                loss = fold_criterion(out, lbl)
+                loss.backward()
+                fold_optimizer.step()
+            except Exception as e:
+                logger.warning(f"Error during training image {item['path']}: {e}. Skipping image.")
 
-    model.eval()
-    camer = GradCAM(model, target_layer)
+    fold_model.eval()
+    camer = GradCAM(fold_model, fold_model.layer4[-1])
+
     for item in test_set:
-        original_img = Image.open(item['path']).convert('RGB')
-        inp = eval_transform(original_img).unsqueeze(0).to(device)
-        out = model(inp)
-        cls_pred = out.argmax(dim=1).item()
-        heatmap = camer(inp, cls_pred)
-        ori_gray = np.array(original_img.resize((224,224)))
+        try:
+            original_img = Image.open(item['path']).convert('RGB')
+            inp = eval_transform(original_img).unsqueeze(0).to(device)
+            out = fold_model(inp)
+            cls_pred = out.argmax(dim=1).item()
+            heatmap = camer(inp, cls_pred)
 
-        fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize=(12, 4))
-        ax0.imshow(ori_gray, cmap='gray')
-        ax0.set_title('Original')
-        ax0.axis('off')
+            # --- Masking Logic ---
+            heatmap_to_plot = heatmap
+            title_suffix = ""
+            
+            mask_file = find_mask_for_slice(item['path'])
+            if mask_file:
+                try:
+                    mask_img = Image.open(mask_file).convert('L') # 'L' for grayscale
+                    mask_resized = mask_img.resize((224, 224), Image.NEAREST)
+                    mask_np = np.array(mask_resized)
+                    mask_np = (mask_np > 127).astype(np.float32) # Binarize the mask to 0s and 1s
+                    
+                    heatmap_masked = heatmap.copy()
+                    heatmap_masked *= mask_np
+                    heatmap_to_plot = heatmap_masked
+                    title_suffix = " (masked)"
+                    logger.info(f"Mask applied for {os.path.basename(item['path'])} using {os.path.basename(mask_file)}")
+                except Exception as e:
+                    logger.warning(f"Error loading or applying mask {mask_file!r} for {item['path']!r}: {e}. Proceeding without mask.")
+                    title_suffix = " (mask error)"
+            else:
+                logger.info(f"No mask found for {item['path']!r}. Proceeding without mask.")
+                title_suffix = " (no mask)"
 
-        im1 = ax1.imshow(heatmap, cmap='jet', vmin=0, vmax=1)
-        ax1.set_title('Grad-CAM')
-        ax1.axis('off')
+            # --- Generate Overlay ---
+            overlay_img = apply_heatmap_overlay(original_img, heatmap_to_plot)
 
-        ax2.imshow(ori_gray, cmap='gray')
-        ax2.imshow(cv2.applyColorMap(np.uint8(heatmap * 255), cv2.COLORMAP_JET), alpha=0.5)
-        ax2.set_title('Overlay')
-        ax2.axis('off')
+            # --- Plotting ---
+            fig, (ax0, ax1, ax2) = plt.subplots(1,3, figsize=(12,4))
+            
+            ax0.imshow(original_img.resize((224,224))); ax0.axis('off'); ax0.set_title('Original')
+            im1 = ax1.imshow(heatmap, cmap='jet', vmin=0, vmax=1); ax1.axis('off'); ax1.set_title('Raw Grad-CAM')
+            ax2.imshow(overlay_img); ax2.axis('off'); ax2.set_title(f'Overlay{title_suffix}')
+            
+            cbar = fig.colorbar(im1, ax=[ax0,ax1,ax2], location='right', fraction=0.046, pad=0.04)
+            cbar.set_label('Activation', rotation=270, labelpad=15)
+            
+            fig.suptitle(f"Subject: {item['subject']} | Class: {item['cls']}", fontsize=16)
+            
+            # Save path based on class and subject
+            output_subj_dir = os.path.join(base_output_dir, item['cls'], item['subject'])
+            os.makedirs(output_subj_dir, exist_ok=True)
+            
+            out_name_base = os.path.basename(item['path']).split('.')[0]
+            out_path = os.path.join(output_subj_dir, f"gradcam_{item['subject']}_{out_name_base}.svg")
+            
+            plt.tight_layout(rect=[0,0,1,0.92])
+            plt.savefig(out_path, format='svg')
+            plt.close(fig)
+            logger.info(f"Saved Grad-CAM for {item['path']!r} to {out_path}")
 
-        cbar = fig.colorbar(im1, ax=[ax0, ax1, ax2], location='right', fraction=0.046, pad=0.04)
-        cbar.set_label('Activation', rotation=270, labelpad=15)
-        fig.suptitle(f"Subject: {item['subject']} | Class: {item['cls']}", fontsize=16)
+        except Exception as e:
+            logger.error(f"Failed to process {item['path']!r} for Grad-CAM: {e}", exc_info=True)
 
-        out_name = f"{item['subject']}_{os.path.basename(item['path']).split('.')[0]}_gradcam.png"
-        fig.savefig(os.path.join(output_dir, out_name), dpi=300, bbox_inches='tight', pad_inches=0.1)
-        plt.close(fig)
-
-print("✅ Grad-CAM analysis complete. Results saved in:", output_dir)
+logger.info("\u2705 Grad-CAM analysis complete. Results saved under results/gradcam/")

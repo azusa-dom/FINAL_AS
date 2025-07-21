@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
 import torch # For sigmoid and optimization
-from sklearn.metrics import roc_curve, auc, precision_recall_curve, roc_auc_score # <--- ADDED roc_auc_score
+from sklearn.metrics import roc_curve, auc, precision_recall_curve
 from scipy.optimize import minimize_scalar # For optimizing T
 
 # --- Import Custom CNSStyle Theme ---
@@ -126,16 +126,14 @@ def main():
     logger.info("Optimizing temperature for probability calibration...")
     
     # Convert to PyTorch tensors for optimization
-    # Ensure y (labels_tensor) is float for BCEWithLogitsLoss
     logits_tensor = torch.tensor(logits_corrected, dtype=torch.float32)
-    labels_tensor = torch.tensor(y, dtype=torch.float32) # Labels need to be float for loss computation
+    labels_tensor = torch.tensor(y, dtype=torch.float32)
 
     # Define the NLL loss function for optimization
     def nll_loss_func(temp_val):
         if temp_val <= 0: return float('inf') # Temperature must be positive
         calibrated_logits = logits_tensor / temp_val
-        # BCEWithLogitsLoss expects raw logits and target labels (0 or 1).
-        loss = torch.nn.BCEWithLogitsLoss()(calibrated_logits, labels_tensor)
+        loss = torch.nn.BCEWithLogitsLoss()(calibrated_logits, labels_tensor) # BCEWithLogitsLoss for binary
         return loss.item()
 
     # Optimize for temperature (using scalar minimization)
@@ -149,6 +147,15 @@ def main():
     p_calibrated = torch.sigmoid(logits_calibrated_tensor).numpy()
 
     # --- Step 3: Calculate Metrics for Plots ---
+    # Metrics based on direction-corrected and calibrated probabilities
+    # (or just direction-corrected if calibration is deemed separate)
+    
+    # For ROC/PR, it's generally best to use probabilities that have been direction-corrected but *before* calibration,
+    # because calibration primarily affects absolute probabilities, not necessarily rank order (which AUC relies on).
+    # However, if your final model *includes* calibration, then using p_calibrated is fine.
+    # The prompt implies using the final calibrated version for these plots.
+    
+    # Let's use p_calibrated for all plots as it's the "best" representation of model output.
     
     # ---- ROC / PR ----
     fpr, tpr, _ = roc_curve(y, p_calibrated)
@@ -168,8 +175,8 @@ def main():
 
     # --- Final Plotting ---
     plt.figure(figsize=(18, 6)) # Wider figure to accommodate 3 plots side-by-side with better spacing
-    # plt.style.use('seaborn-v0_8-whitegrid') # CNSStyle will handle this
-    
+    plt.style.use('seaborn-v0_8-whitegrid') # Ensure seaborn style if CNS style isn't fully integrated here
+
     # Subplot 1: ROC Curve
     ax1 = plt.subplot(1,3,1) # Changed from 1,2,1
     ax1.plot(fpr,tpr,label=f"AUROC = {roc_auc:.3f}", color='blue', lw=2)
@@ -198,12 +205,12 @@ def main():
     
     # Ensure raw/calibrated dots are distinct and follow typical journal style
     # Use the CNSStyle palette if loaded, or default nice colors.
-    ax3.plot(y_true_for_calib_plot(y, p_for_plots, mode='predicted'),
-             y_true_for_calib_plot(y, p_for_plots, mode='observed'),
+    ax3.plot(np.mean(y_true_for_calib_plot(y, p_for_plots), axis=1), # Mean predicted in bin
+             np.mean(y_true_for_calib_plot(y, p_for_plots, mode='observed'), axis=1), # Observed fraction in bin
              'o-', color='orange', markersize=6, lw=1.5, label=f"Uncalibrated (ECE={ece_raw:.3f})")
 
-    ax3.plot(y_true_for_calib_plot(y, p_calibrated, mode='predicted'),
-             y_true_for_calib_plot(y, p_calibrated, mode='observed'),
+    ax3.plot(np.mean(y_true_for_calib_plot(y, p_calibrated), axis=1), # Mean predicted in bin
+             np.mean(y_true_for_calib_plot(y, p_calibrated, mode='observed'), axis=1), # Observed fraction in bin
              '^-', color='blue', markersize=6, lw=1.5, label=f"Calibrated (ECE={ece_cal:.3f})")
     
     ax3.set_xlabel("Mean predicted probability", fontsize=12); ax3.set_ylabel("Observed fraction of positives", fontsize=12)
