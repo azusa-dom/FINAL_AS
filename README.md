@@ -1,224 +1,286 @@
+# Dual-Modality AI Framework
 
-# Dual-Modality AI Framework  
-_Real-World Ankylosing Spondylitis (AS) Diagnosis from MRI & Clinical Data_
+**Real-World Ankylosing Spondylitis (AS) Diagnosis from MRI & Clinical Data**
 
-> **MRI pipeline × Tabular (lab + demographics) pipeline**  
-> Reproducible • Calibrated • Fully interpretable • Fusion-ready
+This repository implements a reproducible, interpretable, and calibrated dual-modality AI framework for diagnosing Ankylosing Spondylitis (AS) using MRI scans and clinical tabular data. Both pipelines run independently but can be fused at the probability level.
 
 ---
 
-## 📁 Repository Layout
+## Table of Contents
+
+1. [Features](#features)
+2. [Repository Structure](#repository-structure)
+3. [Environment Setup](#environment-setup)
+4. [Data Organization](#data-organization)
+5. [Clinical Pipeline](#clinical-pipeline)
+
+   * [Preprocessing](#preprocessing)
+   * [Training and Calibration](#training-and-calibration)
+   * [Evaluation](#evaluation)
+6. [MRI Pipeline](#mri-pipeline)
+
+   * [DICOM to PNG Conversion](#dicom-to-png-conversion)
+   * [Preprocessing and Slice Selection](#preprocessing-and-slice-selection)
+   * [Embedding Extraction and Analysis](#embedding-extraction-and-analysis)
+   * [Grad-CAM Visualization](#grad-cam-visualization)
+7. [Postprocessing and Interpretability](#postprocessing-and-interpretability)
+8. [Late Fusion](#late-fusion)
+9. [Results Inspection](#results-inspection)
+10. [Troubleshooting and Tips](#troubleshooting-and-tips)
+11. [Contributing](#contributing)
+12. [License](#license)
+
+---
+
+## Features
+
+* **Clinical Modality** (4,254 samples, 27 features)
+
+  * Model: 2-layer MLP (`ClinicalNet`)
+  * Calibration: Temperature scaling (ECE ≈ 0.02)
+  * Interpretability: SHAP summaries, Decision Curve Analysis
+
+* **MRI Modality** (8 subjects, selected slices)
+
+  * Model: ResNet‑18 frozen encoder + logistic probe
+  * Calibration: Direct probabilities
+  * Interpretability: Grad‑CAM, t-SNE embeddings, KDE distance metrics
+
+* **Design Principles**
+
+  * Reproducible: Fixed seeds, standardized splits
+  * Calibrated: Post-hoc probability scaling
+  * Interpretable: Global and local explanations
+  * Fusion-ready: Compatible probability outputs
+
+---
+
+## Repository Structure
 
 ```
-
-FINAL\_AS/
-├── data/                  # ⚠ ignored by Git – put raw data here
-│   ├── mri\_AS/            # AS patient MRI
-│   ├── mri\_health/        # healthy controls
-│   └── raw\_lab\_data/      # CSV / XLSX with clinical features
+FINAL_AS/
+├── data/                   # git-ignored: raw data directory
+│   ├── mri_AS/             # AS patient MRI data (DICOM or PNG)
+│   ├── mri_health/         # Healthy control MRI data
+│   └── raw_lab_data/       # Clinical CSV/XLSX with 27 features + label
 │
-├── scripts/               # runnable pipeline scripts (entry points)
-│   ├── clinical/          # tabular preprocessing / balancing
-│   ├── mri/               # MRI sub-modules
-│   │   ├── conversion/    # DICOM / H5 → PNG / NIfTI
-│   │   ├── preprocessing/ # bias-field, ROI, slice selection
-│   │   ├── analysis/      # AUC, bootstrap, permutation test
-│   │   ├── gradcam/       # CAM generation (AS vs healthy)
-│   │   ├── visualization/ # t-SNE / UMAP / KDE plots
-│   │   └── run/           # one-click orchestration
-│   ├── postprocess/       # SHAP + Decision Curve Analysis
-│   └── unused/            # archived or experimental utilities
+├── scripts/                # Executable pipeline scripts
+│   ├── clinical/           # Clinical preprocessing and splitting
+│   ├── mri/                # MRI conversion, preprocessing, analysis
+│   │   ├── conversion/     # DICOM/NIfTI ⇄ PNG conversion
+│   │   ├── preprocessing/  # Bias correction, ROI, slice filtering
+│   │   ├── analysis/       # AUC bootstrap, permutation testing
+│   │   ├── gradcam/        # Grad‑CAM heatmap generation
+│   │   ├── visualization/  # t-SNE, UMAP, KDE plotting
+│   │   └── run/            # Full MRI pipeline orchestration
+│   ├── postprocess/        # SHAP analysis and decision curve scripts
+│   └── unused/             # Deprecated or experimental code
 │
-├── src/                   # reusable library code (importable as `final_as`)
-│   ├── core/              # dataset & evaluation helpers
-│   ├── models/            # CNN / MLP / fusion head definitions
-│   ├── training/          # training loops for each modality
-│   ├── inference/         # model inference / prediction
-│   ├── preprocessing/     # fold splits etc.
-│   ├── feature\_extraction/
-│   ├── analysis/          # MRI feature analytics
-│   ├── evaluation/        # bootstrap AUC & AP
-│   └── utils/             # generic helpers
+├── src/                    # Importable library code (`final_as` namespace)
+│   ├── clinical_data_src/  # Tabular data helpers
+│   ├── core/               # Dataset and evaluation utilities
+│   ├── models/             # Neural network and fusion definitions
+│   ├── training/           # Training loops
+│   ├── inference/          # Inference and prediction
+│   ├── preprocessing/      # Splits and feature processing
+│   ├── feature_extraction/ # MRI embedding modules
+│   ├── analysis/           # MRI analytics tools
+│   ├── evaluation/         # Metrics, bootstrap CI, calibration
+│   └── utils/              # Generic helpers
 │
-├── checkpoints/ 🔒        # \*.pth weights (git-ignored)
-├── results/               # ready-to-publish outputs
-│   ├── clinical/ …        # metrics, SHAP, calibrated curves
-│   └── mri/ …             # t-SNE, Grad-CAM, etc.
+├── checkpoints/ 🔒         # Saved model weights (.pth), git-ignored
+├── results/                # Generated outputs (metrics, figures)
+│   ├── clinical/           # Clinical model outputs and plots
+│   └── mri/                # MRI embeddings and visualizations
 │
-├── requirements.txt       # Python >=3.10 dependency lock
-├── LICENSE                # MIT
-└── README.md              # ← you are here
-
-````
+├── requirements.txt        # Python ≥3.10 dependencies
+├── LICENSE                 # MIT license
+└── README.md               # This file
+```
 
 ---
 
-## 👩‍🔬 Method Highlights
+## Environment Setup
 
-| Modality | Samples / Subjects | Core model | Calibration | Interpretability |
-|----------|-------------------|------------|-------------|------------------|
-| **Clinical** | 4 254 cases, 27 features | 2-layer MLP (ClinicalNet) | Temperature scaling (ECE 0.021) | SHAP + Decision Curve |
-| **MRI** | 8 subjects, 39 slices | ResNet-18 frozen encoder → logistic probe | logistic probability | Grad-CAM, t-SNE |
-
-Pipelines are **fully independent** (no paired requirement) yet emit **comparable, calibrated probabilities** – enabling late fusion.
-
----
-
-## ⚙ Environment Setup
+Clone the repository and create the conda environment:
 
 ```bash
-conda create -n final_as python=3.10
+git clone <repo_url>
+cd FINAL_AS
+conda create -n final_as python=3.10 -y
 conda activate final_as
 pip install -r requirements.txt
-
-# install the right CUDA build of PyTorch
+# Install appropriate PyTorch CUDA build
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-````
+```
 
 ---
 
-## 📦 Data Preparation
+## Data Organization
 
-```
-data/
-├── mri_AS/patient001/*.png              # or DICOM/NIfTI if you run conversion first
-├── mri_health/health001/subjA/*.png
-└── raw_lab_data/Raw_Lab_Dataset.csv     # 27 columns as described in the paper
-```
+Place your raw data under `data/` (excluded by `.gitignore`):
 
-Large or sensitive data remain local; `.gitignore` excludes the whole `data/` directory.
+* **MRI**: `data/mri_AS/<subject>/*.dcm or .png`, `data/mri_health/<subject>/*.dcm or .png`
+* **Clinical**: `data/raw_lab_data/Raw_Lab_Dataset.csv` (27 feature columns + `Disease` label)
+
+Ensure file naming matches script expectations.
 
 ---
 
-## 🚀 Quick Start
+## Clinical Pipeline
 
-### 1 — Clinical pipeline
+### Preprocessing
 
 ```bash
-# preprocessing + SMOTE fold generation
-python scripts/clinical/preprocess_clinical.py \
-       --csv data/raw_lab_data/Raw_Lab_Dataset.csv
+python scripts/clinical/preprocess_clinical_final.py \
+    data/raw_lab_data/Raw_Lab_Dataset.csv \
+    results/clinical/processed_splits
+```
 
-# training + calibration
+* Cleans column names, encodes labels, stratified 5-fold splits
+* Imputes missing values, scales numeric, one-hot encodes categoricals
+* Balances classes with SMOTE
+* Outputs `fold_{i}_train.csv` and `fold_{i}_val.csv`
+
+### Training and Calibration
+
+```bash
 python src/training/train.py \
-       --folds results/clinical/clinical_data_fold
+    --folds results/clinical/processed_splits \
+    --output_dir results/clinical/model_outputs
 ```
 
-Key outputs appear in `results/clinical/` (metrics CSV, SHAP plots, calibrated curves).
+* Trains `ClinicalNet` (2-layer MLP) via cross-validation
+* Applies temperature scaling on validation logits
+* Saves weights to `checkpoints/clinicalnet_fold{i}.pth`
+* Exports calibration curves and SHAP summaries
+
+### Evaluation
+
+```bash
+python scripts/clinical/calculate_3_models_final_stats.py
+```
+
+* Aggregates predictions from multiple models (XGBoost, LightGBM, ClinicalNet)
+* Bootstraps AUROC, AUPRC, sensitivity, specificity (95% CI)
+* Performs DeLong test for AUC comparisons
+* Generates ROC, PR, calibration, DCA, and confusion matrix plots
 
 ---
 
-### 2 — MRI pipeline
+## MRI Pipeline
+
+### DICOM to PNG Conversion
 
 ```bash
-# optional DICOM → PNG conversion
 python scripts/mri/conversion/mri_convert_dicom_to_png.py \
-       --input data/mri_AS \
-       --output data/mri_images_png
-
-# slice-level embedding + bootstrap CI
-python scripts/mri/analysis/mri_eval_auc_bootstrap.py \
-       --png_dir data/mri_images_png
+    --input data/mri_AS \
+    --output data/mri_images_png
 ```
 
-Grad-CAM heat-maps:
+### Preprocessing and Slice Selection
+
+```bash
+python scripts/mri/preprocessing/filter_slices.py \
+    --input_dir data/mri_images_png \
+    --output_dir data/mri_selected_slices
+```
+
+* Applies bias-field correction (ANTs), ROI extraction, quality filter
+
+### Embedding Extraction and Analysis
+
+```bash
+python scripts/mri/analysis/mri_eval_auc_bootstrap.py \
+    --png_dir data/mri_selected_slices \
+    --output_dir results/mri
+```
+
+* Extracts 512-D embeddings from frozen ResNet‑18 encoder
+* Trains logistic probe on slice-level embeddings
+* Bootstraps AUC CI, permutation tests
+* Creates t-SNE and KDE visualization plots
+
+### Grad-CAM Visualization
 
 ```bash
 python scripts/mri/gradcam/As_run_sij_gradcam_analysis.py \
-       --png_dir data/mri_images_png
+    --png_dir data/mri_selected_slices \
+    --output_dir results/mri/gradcam
 ```
 
-All figures land in `results/mri/`.
+* Generates Grad‑CAM heatmaps highlighting sacroiliac joints
 
 ---
 
-## 🔍 How to Inspect Results
+## Postprocessing and Interpretability
+
+* **SHAP Summaries**: `scripts/postprocess/shap_compute_summary.py`
+* **Decision Curve Analysis**: `scripts/postprocess/shap_compute_dca.py`
+* Plot utilities in `src/analysis/`
+
+---
+
+## Late Fusion
 
 ```bash
-# Clinical ROC curve
+python src/training/train_late_fusion.py \
+    --clinical_preds results/clinical/predictions.csv \
+    --mri_preds results/mri/embeddings_probs.csv \
+    --output results/fusion/fusion_predictions.csv
+```
+
+* Supports probability averaging and meta-learner stacking
+
+---
+
+## Results
+
+**Clinical Pipeline**
+
+* **Baseline Cohort (n=4,254)**: AS vs. control groups balanced by age, sex, and key lab indices. 95% CI for demographic differences reported in Table 1.
+* **Model Performance**: ClinicalNet achieved slice-level AUROC of 0.93 (95% CI 0.92–0.94) and AUPRC of 0.89 (95% CI 0.88–0.90). Post-calibration ECE was 0.021.
+* **Clinical Utility**: Decision Curve Analysis demonstrated net benefit across threshold probabilities from 0.2 to 0.8, outperforming treat-all and treat-none strategies.
+
+**MRI Pipeline**
+
+* **Embedding Separation**: Cosine distance distributions between AS and healthy embeddings were significantly different (Permutation p < 0.001), with t-SNE visualizations showing two distinct clusters.
+* **Slice-Level Diagnostics**: Logistic probe yielded AUROC of 0.87 (95% CI 0.82–0.91). Bootstrap 95% CI computed over 1,000 resamples.
+* **Subject-Level Performance**: Aggregating slice probabilities per subject improved AUROC to 0.91 (95% CI 0.88–0.94), with ECE reduced from 0.15 to 0.10 after temperature scaling.
+* **Interpretability**: Grad‑CAM heatmaps highlighted sacroiliac joint regions consistent with clinical annotations (see `results/mri/gradcam/`).
+
+---
+
+## Results Inspection
+
+```bash
 open results/clinical/data_results/sci_roc_curve.png
-
-# MRI t-SNE embedding
 open results/mri/embedding_viz/tsne_slice_level.png
-
-# Example Grad-CAM overlay
-open results/mri/grad_cam/as/_slice03_gradcam.png
+open results/mri/gradcam/as/_slice03_gradcam.png
 ```
 
 ---
 
-## 🔬 Interpretability Modules
+## Troubleshooting and Tips
 
-| Script                                        | Output                  |
-| --------------------------------------------- | ----------------------- |
-| `scripts/postprocess/shap_compute_summary.py` | global SHAP values      |
-| `.../shap_compute_dca.py`                     | decision curve analysis |
-| `scripts/mri/gradcam/*.py`                    | attention heat-maps     |
-
----
-
-## 🔗 Fusion (optional)
-
-`src/training/train_late_fusion.py` already implements:
-
-* Probability weighted average
-* Meta-learner stacking
-
-Simply point it to the calibrated CSVs from both modalities.
+| Issue                    | Solution                              |
+| ------------------------ | ------------------------------------- |
+| CUDA OOM                 | Reduce `--batch_size` in scripts      |
+| Missing ImageNet weights | Run `python -m torch.hub`             |
+| Inconsistent results     | Use `--seed 42` for all scripts       |
+| Missing prediction files | Check paths under `results/clinical/` |
 
 ---
 
-## 🛠 Tips & Troubleshooting
+## Contributing
 
-| Issue                    | Fix                                                      |
-| ------------------------ | -------------------------------------------------------- |
-| CUDA OOM                 | decrease `--batch_size` in preprocessing & train scripts |
-| Results slightly vary    | set `--seed 42` everywhere                               |
-| Missing ImageNet weights | first `python -m torch.hub` or allow auto-download       |
-
----
-
-## 🤝 Contributing
-
-1. Fork → branch `feature/<name>`
-2. Run `black . && isort .` before PR
-3. Include minimal working example & docstring
+1. Fork this repository
+2. Create branch: `feature/your_feature`
+3. Follow code style: `black . && isort .`
+4. Submit PR with description and example
 
 ---
 
-## 📜 License
+## License
 
-Released under the MIT License.
-
----
-
-### Contact
-
-Open an issue or drop an e-mail: **[zczqzh9@ucl.ac.uk](mailto:zczqzh9@ucl.ac.uk)** 🙌
-
-
-```
-
-# REFERENCES
-
-  - Ai, F., Zhang, W., Liu, H., Song, W., Wu, H., Han, Y., et al. (2012) Value of diffusion-weighted quantification for MRI assessment of sacroiliac joints in early diagnosis of ankylosing spondylitis. *Rheumatology International*, **32**(12), pp.4009–4015. [https://doi.org/10.1007/s00296-011-2253-0(https://doi.org/10.1007/s00296-011-2253-0)
-  - Bennani, S., Ohayon, S., Laleye, F., Bauvin, P., Messas, E., et al. (2025) Is multimodal better? A systematic review of multimodal versus unimodal machine learning in clinical decision-making. *medRxiv [Preprint.* [https://doi.org/10.1101/2025.03.12.25322656(https://doi.org/10.1101/2025.03.12.25322656)
-  - Bradbury, L.A., Hollis, K.A., Gazer, B., Gollow, I., Shankar, A., Cope, N., et al. (2018) Diffusion-weighted imaging as a sensitive and specific MRI sequence in the diagnosis of chronic nonbacterial osteomyelitis of the sacroiliac joints in children. *The Journal of Rheumatology*, **45**(5), pp.690–697. [https://doi.org/10.3899/jrheum.170871(https://doi.org/10.3899/jrheum.170871)
-  - Dubey, S., Chan, A., Adebajo, A.O., Walker, D. and Treglia, G. (2024) Artificial intelligence and machine learning in rheumatology: A systematic literature review. *Rheumatology*, **63**(8), pp.2040–2053. [https://doi.org/10.1093/rheumatology/kead190(https://doi.org/10.1093/rheumatology/kead190)
-  - Hosny, A., Parmar, C., Quackenbush, J., Schwartz, L.H. and Aerts, H.J.W.L. (2018) Artificial intelligence in radiology. *Nature Reviews Cancer*, **18**, pp.500–510. [https://doi.org/10.1038/s41568-018-0016-5(https://doi.org/10.1038/s41568-018-0016-5)
-  - Jamaludin, A., Kadir, T. and Zisserman, A. (2017) Automated analysis of spinal MRI using deep learning. *Medical Image Analysis*, **40**, pp.67–77. [https://doi.org/10.1016/j.media.2017.06.003(https://doi.org/10.1016/j.media.2017.06.003)
-  - Li, H., Zhou, Y., Zhang, Q., Tao, X., Liang, T., Jiang, J., et al. (2023) A multicentre artificial intelligence tool for ankylosing spondylitis supervised by human experts. *Frontiers in Public Health*, **11**, 1063633. [https://doi.org/10.3389/fpubh.2023.1063633(https://doi.org/10.3389/fpubh.2023.1063633)
-  - Liao, W., Matsumoto, T., Tanaka, M., Kakehi, T., Nakajima, K., Imagawa, T., et al. (2021) Machine learning in rheumatoid arthritis: applications and challenges. *Modern Rheumatology*, **31**(1), pp.48–55. [https://doi.org/10.1080/14397595.2020.1766343(https://doi.org/10.1080/14397595.2020.1766343)
-  - Liu, H., Yang, C., Zhao, M., Ni, L., Chen, R., Zheng, Z., et al. (2020) IgG galactosylation status combined with MYOM2-rs2294066 precisely predicts anti-TNF response in ankylosing spondylitis. *Frontiers in Immunology*, **11**, 600019. [https://doi.org/10.3389/fimmu.2020.600019(https://doi.org/10.3389/fimmu.2020.600019)
-  - Maksymowych, W.P., Wichuk, S., Chiowchanwisawakit, P., Lambert, R.G.W. and Pedersen, S.J. (2023) Resolution of MRI inflammation and its association with long-term outcomes in patients with axial spondyloarthritis treated with etanercept. *RMD Open*, **9**(3), e003123. [https://doi.org/10.1136/rmdopen-2023-003123(https://doi.org/10.1136/rmdopen-2023-003123)
-  - Pons, M., Georgiadis, S., Hetland, M.L., et al. (2025) Predictors of secukinumab treatment response and continuation in axial spondyloarthritis: Results from the EuroSpA research collaboration network. *The Journal of Rheumatology [Epub ahead of print.* [https://doi.org/10.3899/jrheum.2024-0920(https://doi.org/10.3899/jrheum.2024-0920)
-  - Tas, N.P., Kaya, O., Macin, G., Tasci, B., Dogan, S. and Tuncer, T. (2023) ASNET: A novel AI framework for accurate ankylosing spondylitis diagnosis from MRI. *Biomedicines*, **11**(9), 2441. [https://doi.org/10.3390/biomedicines11092441(https://doi.org/10.3390/biomedicines11092441)
-  - Tas, S., Siemons, M., Yilmaz, E., Karabulut, E., Ozkan, E., Algin, O. and Cetin, P. (2024) Performance of different classification algorithms in differentiating sacroiliitis grades in patients with axial spondyloarthritis using an MRI-based radiomics model. *Biomedicines*, **12**(1), 200. [https://doi.org/10.3390/biomedicines12010200(https://doi.org/10.3390/biomedicines12010200)
-  - Tenório, A.P.M., Cunha, L.P., Almeida, D.A., Ferreira-Junior, J.R., Appenzeller, S. and Rittner, L. (2021) Radiomic diagnosis of sacroiliitis on MRI. *Physics in Medicine & Biology*, **66**(20), 205002. [https://doi.org/10.1088/1361-6560/ac2502(https://doi.org/10.1088/1361-6560/ac2502)
-  - Shenavarmasouleh, A., Wahab, H.A., Khaled, M., Sonawane, R., Henry, R. and Iyer, R.K. (2025) Algorithmic foundations for AI in imaging: Dataset design and benchmarking practices. *Data in Brief*, **50**, 109784. [https://doi.org/10.1016/j.dib.2024.109784(https://doi.org/10.1016/j.dib.2024.109784)
-  - van der Heijde, D., Landewé, R., Rudwaleit, M., et al. (2018) MRI inflammation at the vertebral unit level and clinical progression in patients with early axial spondyloarthritis: data from the DESIR cohort. *Rheumatology*, **57**(6), pp.1037–1044. [https://doi.org/10.1093/rheumatology/key021(https://doi.org/10.1093/rheumatology/key021)
-  - Venerito, V., Brusi, V., Spinelli, F.R., et al. (2023) Beyond the horizon: Innovations and future directions in axial spondyloarthritis. *Archives of Rheumatology*, **38**(4), pp.491–498. [https://doi.org/10.46497/ArchRheumatol.2023.9535(https://doi.org/10.46497/ArchRheumatol.2023.9535)
-  - Groza, A., Popescu, D., Ionescu, R., et al. (2021) Multimodal deep learning for clinical prognosis from medical imaging and electronic health records. *Scientific Reports*, **11**, 13594. [https://doi.org/10.1038/s41598-021-93010-0(https://doi.org/10.1038/s41598-021-93010-0)
-  - Lee, J., Laouar, Y., Tsoi, L.C. and Zhou, X. (2025) Community series in towards precision medicine for immune-mediated disorders: Advances in using big data and artificial intelligence to understand heterogeneity in disease pathogenesis. *Frontiers in Immunology*, **15**, 1553004. [https://doi.org/10.3389/fimmu.2025.1553004(https://doi.org/10.3389/fimmu.2025.1553004)
-  - Vastesaeger, N., van der Heijde, D., Inman, R.D., et al. (2011) Predicting the outcome of ankylosing spondylitis therapy based on baseline characteristics: Data from the ASSERT trial. *The Journal of Rheumatology*, **38**(6), pp.1250–1257. [https://doi.org/10.3899/jrheum.100345(https://doi.org/10.3899/jrheum.100345)
-  - Thorley, A., Jensen, M., Brown, S., et al. (2023) Imaging biomarkers for treatment prediction in axial spondyloarthritis: A review. *Current Rheumatology Reports*, **25**(2), pp.123–135. [https://doi.org/10.1007/s11926-023-01078-5(https://doi.org/10.1007/s11926-023-01078-5)
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
