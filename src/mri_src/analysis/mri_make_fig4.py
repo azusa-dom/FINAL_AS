@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
 import torch # For sigmoid and optimization
-from sklearn.metrics import roc_curve, auc, precision_recall_curve
+from sklearn.metrics import roc_curve, auc, precision_recall_curve, roc_auc_score # <--- Ensure roc_auc_score is correctly imported
 from scipy.optimize import minimize_scalar # For optimizing T
 
 # --- Import Custom CNSStyle Theme ---
@@ -31,9 +31,9 @@ try:
     from visualization.theme import configure_cns_style
     _theme_loaded = True
     print("✅ Custom theme 'configure_cns_style' successfully imported into mri_make_fig4.py.")
-except ImportError:
+except ImportError as e:
     _theme_loaded = False
-    print("❌ Could not import theme file 'src/visualization/theme.py'. Plots will use default Matplotlib style.")
+    print(f"❌ Could not import theme file 'src/visualization/theme.py': {e}. Plots will use default Matplotlib style.")
     # Fallback Matplotlib configuration if theme fails to load
     plt.rcParams.update({
         "figure.dpi":      300, "savefig.dpi":     300, "figure.figsize":  (8, 6),
@@ -46,7 +46,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def compute_ece(y_true, probs, n_bins=5): # Reduced bins for small N
+def compute_ece(y_true, probs, n_bins=4): # Adjusted bins for small N (e.g., 8 subjects)
     bins = np.linspace(0.0, 1.0, n_bins+1)
     ece = 0.0
     for i in range(n_bins):
@@ -126,8 +126,9 @@ def main():
     logger.info("Optimizing temperature for probability calibration...")
     
     # Convert to PyTorch tensors for optimization
+    # Ensure y (labels_tensor) is float for BCEWithLogitsLoss
     logits_tensor = torch.tensor(logits_corrected, dtype=torch.float32)
-    labels_tensor = torch.tensor(y, dtype=torch.float32)
+    labels_tensor = torch.tensor(y, dtype=torch.float32) # Labels need to be float for loss computation
 
     # Define the NLL loss function for optimization
     def nll_loss_func(temp_val):
@@ -147,15 +148,6 @@ def main():
     p_calibrated = torch.sigmoid(logits_calibrated_tensor).numpy()
 
     # --- Step 3: Calculate Metrics for Plots ---
-    # Metrics based on direction-corrected and calibrated probabilities
-    # (or just direction-corrected if calibration is deemed separate)
-    
-    # For ROC/PR, it's generally best to use probabilities that have been direction-corrected but *before* calibration,
-    # because calibration primarily affects absolute probabilities, not necessarily rank order (which AUC relies on).
-    # However, if your final model *includes* calibration, then using p_calibrated is fine.
-    # The prompt implies using the final calibrated version for these plots.
-    
-    # Let's use p_calibrated for all plots as it's the "best" representation of model output.
     
     # ---- ROC / PR ----
     fpr, tpr, _ = roc_curve(y, p_calibrated)
@@ -175,8 +167,8 @@ def main():
 
     # --- Final Plotting ---
     plt.figure(figsize=(18, 6)) # Wider figure to accommodate 3 plots side-by-side with better spacing
-    plt.style.use('seaborn-v0_8-whitegrid') # Ensure seaborn style if CNS style isn't fully integrated here
-
+    # plt.style.use('seaborn-v0_8-whitegrid') # CNSStyle will handle this
+    
     # Subplot 1: ROC Curve
     ax1 = plt.subplot(1,3,1) # Changed from 1,2,1
     ax1.plot(fpr,tpr,label=f"AUROC = {roc_auc:.3f}", color='blue', lw=2)
@@ -203,19 +195,26 @@ def main():
     # Use smaller markers and thinner lines for clarity
     ax3.plot([0,1], [0,1], 'k--', linewidth=1, label='Perfectly calibrated')
     
-    # Ensure raw/calibrated dots are distinct and follow typical journal style
-    # Use the CNSStyle palette if loaded, or default nice colors.
-    ax3.plot(np.mean(y_true_for_calib_plot(y, p_for_plots), axis=1), # Mean predicted in bin
-             np.mean(y_true_for_calib_plot(y, p_for_plots, mode='observed'), axis=1), # Observed fraction in bin
-             'o-', color='orange', markersize=6, lw=1.5, label=f"Uncalibrated (ECE={ece_raw:.3f})")
+    # Plotting using y_true_for_calib_plot helper function
+    # Make sure to handle cases where binned_data might be empty if some bins are sparse
+    predicted_raw, observed_raw = y_true_for_calib_plot(y, p_for_plots, n_bins=4, mode='both') # Changed to n_bins=4
+    predicted_cal, observed_cal = y_true_for_calib_plot(y, p_calibrated, n_bins=4, mode='both') # Changed to n_bins=4
 
-    ax3.plot(np.mean(y_true_for_calib_plot(y, p_calibrated), axis=1), # Mean predicted in bin
-             np.mean(y_true_for_calib_plot(y, p_calibrated, mode='observed'), axis=1), # Observed fraction in bin
-             '^-', color='blue', markersize=6, lw=1.5, label=f"Calibrated (ECE={ece_cal:.3f})")
+    if len(predicted_raw) > 0:
+        ax3.plot(predicted_raw, observed_raw,
+                 'o-', color='orange', markersize=6, lw=1.5, label=f"Uncalibrated (ECE={ece_raw:.3f})")
+    else:
+        logger.warning("No data points for plotting uncalibrated calibration curve.")
+
+    if len(predicted_cal) > 0:
+        ax3.plot(predicted_cal, observed_cal,
+                 '^-', color='blue', markersize=6, lw=1.5, label=f"Calibrated (ECE={ece_cal:.3f})")
+    else:
+        logger.warning("No data points for plotting calibrated calibration curve.")
     
     ax3.set_xlabel("Mean predicted probability", fontsize=12); ax3.set_ylabel("Observed fraction of positives", fontsize=12)
     ax3.set_title(f"C. Reliability Diagram (Calibration)", fontsize=14, fontweight='bold')
-    ax3.legend(loc='upper left', frameon=False, fontsize=10)
+    ax3.legend(loc='center right', frameon=False, fontsize=10) # <-- CHANGED LEGEND LOCATION HERE
     ax3.set_xlim([-0.02, 1.02]); ax3.set_ylim([-0.02, 1.02])
     ax3.tick_params(axis='both', labelsize=10)
     ax3.grid(alpha=0.4, linestyle=':')
@@ -238,7 +237,7 @@ def main():
     ax4.grid(alpha=0.4, linestyle=':')
     ax4.set_xlim([0.1, 0.6]) # Restrict threshold range as requested
     # Auto-adjust y-lim or set reasonable fixed range if known
-    # ax4.set_ylim([-0.1, 0.2]) # Example fixed y-limit
+    # ax4.set_ylim([-0.1, 0.2]) # Example fixed y-lim
 
     plt.tight_layout()
     plt.savefig(out_dir_path/"figure4d_dca.svg", dpi=300, format='svg') # Save as SVG
@@ -251,7 +250,7 @@ def main():
 
 
 # Helper for calibration plot (replaces complex loop with pre-binned data)
-def y_true_for_calib_plot(y_true, probs, n_bins=5, mode='predicted'):
+def y_true_for_calib_plot(y_true, probs, n_bins=4, mode='predicted'): # Changed default n_bins to 4
     """
     Helper to bin probabilities and return mean predicted or observed fractions per bin.
     Used for calibration curve plotting (reliability diagrams).
@@ -269,8 +268,7 @@ def y_true_for_calib_plot(y_true, probs, n_bins=5, mode='predicted'):
         in_bin = (probs >= lower_bound) & (probs < upper_bound)
         
         if np.sum(in_bin) == 0:
-            # If bin is empty, matplotlib's calibration_curve skips it.
-            # We can also skip it here, or plot empty points.
+            # If bin is empty, we don't add a point for this bin.
             continue
         
         mean_predicted = probs[in_bin].mean()
@@ -289,8 +287,10 @@ def y_true_for_calib_plot(y_true, probs, n_bins=5, mode='predicted'):
         return np.array(mean_predicted_in_bins)
     elif mode == 'observed':
         return np.array(observed_fractions_in_bins)
+    elif mode == 'both': # Added 'both' mode to return two arrays
+        return np.array(mean_predicted_in_bins), np.array(observed_fractions_in_bins)
     else:
-        raise ValueError("Mode must be 'predicted' or 'observed'")
+        raise ValueError("Mode must be 'predicted', 'observed', or 'both'")
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from sklearn.calibration import calibration_curve
 
-print("✅✅✅ Running training script with Temperature Scaling & Mondrian-style plots ✅✅✅")
+print("✅✅✅ Running training script with Temperature Scaling & Mondrian-style plots (v2 - Corrected) ✅✅✅")
 
 class ClinicalNet(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, dropout_p=0.5):
@@ -30,7 +30,7 @@ class ClinicalNet(nn.Module):
         return self.net(x)
 
 class _ECELoss(nn.Module):
-    def __init__(self, n_bins=10):
+    def __init__(self, n_bins=15): # Using 15 bins to match manuscript
         super(_ECELoss, self).__init__()
         self.n_bins = n_bins
 
@@ -44,7 +44,9 @@ class _ECELoss(nn.Module):
             in_bin = confs.gt(lo) & confs.le(hi)
             prop = in_bin.float().mean()
             if prop.item() > 0:
-                ece += torch.abs(confs[in_bin].mean() - accs[in_bin].float().mean()) * prop
+                acc_in_bin = accs[in_bin].float().mean()
+                avg_conf_in_bin = confs[in_bin].mean()
+                ece += torch.abs(avg_conf_in_bin - acc_in_bin) * prop
         return ece
 
 class ModelWithTemperature(nn.Module):
@@ -55,32 +57,43 @@ class ModelWithTemperature(nn.Module):
 
     def forward(self, x):
         logits = self.model(x)
+        return self.temperature_scale(logits)
+
+    def temperature_scale(self, logits):
         return logits / self.temperature
 
     def set_temperature(self, loader, device):
         self.to(device)
-        nll = nn.CrossEntropyLoss().to(device)
-        ece_crit = _ECELoss(n_bins=10).to(device)
+        nll_criterion = nn.CrossEntropyLoss().to(device)
+        ece_criterion = _ECELoss().to(device)
+        
         logits_list, labels_list = [], []
         with torch.no_grad():
             for x, y, _ in loader:
                 x = x.to(device)
                 logits_list.append(self.model(x))
                 labels_list.append(y)
+        
         logits = torch.cat(logits_list).to(device)
         labels = torch.cat(labels_list).to(device)
-        print("Before ECE:", float(ece_crit(logits, labels)))
+
+        ece_before = ece_criterion(logits, labels).item()
+        print(f"Before temperature scaling ECE: {ece_before:.4f}")
+
         optimizer = optim.LBFGS([self.temperature], lr=0.01, max_iter=50)
 
-        def _eval():
+        def eval():
             optimizer.zero_grad()
-            loss = nll(logits / self.temperature, labels)
+            loss = nll_criterion(self.temperature_scale(logits), labels)
             loss.backward()
             return loss
 
-        optimizer.step(_eval)
+        optimizer.step(eval)
+        
+        ece_after = ece_criterion(self.temperature_scale(logits), labels).item()
         print(f"Optimal temperature: {self.temperature.item():.3f}")
-        print("After ECE:", float(ece_crit(logits / self.temperature, labels)))
+        print(f"After temperature scaling ECE: {ece_after:.4f}")
+        
         return self
 
 class ClinicalDataset(TensorDataset):
@@ -99,28 +112,14 @@ class ClinicalDataset(TensorDataset):
 
 def get_kfold_loaders(data_dir, id_column, label_column, n_splits=5, batch_size=32):
     loaders = []
+    # This logic assumes all fold files exist and have consistent columns.
+    # A robust implementation might check each file.
     first_df = pd.read_csv(os.path.join(data_dir, 'fold_0_train.csv'))
     feat_cols = [c for c in first_df.columns if c != label_column and c != id_column]
 
     for i in range(n_splits):
         train_df = pd.read_csv(os.path.join(data_dir, f'fold_{i}_train.csv'))
         val_df = pd.read_csv(os.path.join(data_dir, f'fold_{i}_val.csv'))
-
-        for df in (train_df, val_df):
-            for col in feat_cols:
-                if col not in df.columns:
-                    df[col] = 0.0
-
-        train_cols = feat_cols + [label_column]
-        val_cols = feat_cols + [label_column]
-
-        if id_column in train_df.columns:
-            train_cols.append(id_column)
-        if id_column in val_df.columns:
-            val_cols.append(id_column)
-
-        train_df = train_df[train_cols]
-        val_df = val_df[val_cols]
 
         train_ds = ClinicalDataset(train_df, label_column=label_column, id_column=id_column)
         val_ds = ClinicalDataset(val_df, label_column=label_column, id_column=id_column)
@@ -129,115 +128,106 @@ def get_kfold_loaders(data_dir, id_column, label_column, n_splits=5, batch_size=
             DataLoader(train_ds, batch_size=batch_size, shuffle=True),
             DataLoader(val_ds, batch_size=batch_size, shuffle=False)
         ))
-
-    return loaders
+    return loaders, feat_cols
 
 def get_class_weights(dataset):
     counts = torch.bincount(dataset.labels)
-    return 1.0 / (counts.float() + 1e-6)
+    weights = 1.0 / (counts.float() + 1e-6)
+    return weights / weights.sum() # Normalize weights
 
 def train(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
-    kfold_loaders = get_kfold_loaders(args.data_dir, args.id_column, args.label_column)
+    
+    kfold_loaders, feature_names = get_kfold_loaders(args.data_dir, args.id_column, args.label_column, n_splits=args.n_splits)
 
     os.makedirs(args.model_dir, exist_ok=True)
     plots_dir = os.path.join(args.model_dir, 'calibration_plots')
     os.makedirs(plots_dir, exist_ok=True)
-
-    mondrian = {'perfect': '#000000', 'uncal': '#0033A0', 'cal': '#D7141A'}
+    # **NEW**: Create a directory for calibrated predictions
+    preds_dir = os.path.join(args.model_dir, 'clinical_preds')
+    os.makedirs(preds_dir, exist_ok=True)
 
     for fold, (train_loader, val_loader) in enumerate(kfold_loaders):
         print(f"\n=== Fold {fold} ===")
-        num_classes = len(train_loader.dataset.unique_labels)
         input_dim = train_loader.dataset.features.shape[1]
+        num_classes = len(train_loader.dataset.unique_labels)
+        
         model = ClinicalNet(input_dim, hidden_size=64, output_size=num_classes).to(device)
-
+        
         weights = get_class_weights(train_loader.dataset).to(device)
         criterion = nn.CrossEntropyLoss(weight=weights)
         optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
 
-        best_val_loss, no_improve = float('inf'), 0
+        best_val_loss = float('inf')
+        no_improve_epochs = 0
+        
         for epoch in range(args.epochs):
             model.train()
             for feats, labels, _ in train_loader:
                 feats, labels = feats.to(device), labels.to(device)
                 optimizer.zero_grad()
                 loss = criterion(model(feats), labels)
-                loss.backward(); optimizer.step()
+                loss.backward()
+                optimizer.step()
 
             model.eval()
-            val_loss = sum(criterion(model(feats.to(device)), labels.to(device)).item()
-                           for feats, labels, _ in val_loader) / len(val_loader)
+            current_val_loss = 0
+            with torch.no_grad():
+                for feats, labels, _ in val_loader:
+                    feats, labels = feats.to(device), labels.to(device)
+                    current_val_loss += criterion(model(feats), labels).item()
+            
+            val_loss = current_val_loss / len(val_loader)
             print(f"Epoch {epoch+1}, Val Loss: {val_loss:.4f}")
+
             if val_loss < best_val_loss:
-                best_val_loss, no_improve = val_loss, 0
-                best_state = model.state_dict()
+                best_val_loss = val_loss
+                no_improve_epochs = 0
+                best_model_state = model.state_dict()
             else:
-                no_improve += 1
-            if no_improve >= 3:
-                print("⚠️  Early stopping")
+                no_improve_epochs += 1
+            
+            if no_improve_epochs >= args.patience:
+                print(f"⚠️  Early stopping after {args.patience} epochs with no improvement.")
                 break
 
-        model.load_state_dict(best_state)
-        torch.save(model.state_dict(), os.path.join(args.model_dir, f'model_fold_{fold}.pth'))
+        model.load_state_dict(best_model_state)
+        torch.save(model.state_dict(), os.path.join(args.model_dir, f'best_model_fold_{fold}.pth'))
 
-        print("-- Calibrating temperature --")
+        print("-- Calibrating temperature on validation set --")
         calibrated_model = ModelWithTemperature(model).set_temperature(val_loader, device)
 
-        model.eval(); calibrated_model.eval()
-        all_uncal, all_cal, all_labels = [], [], []
+        # **NEW**: Save calibrated predictions for the validation set of this fold
+        calibrated_model.eval()
+        fold_preds = []
         with torch.no_grad():
-            for feats, labels, _ in val_loader:
+            for feats, labels, patient_ids in val_loader:
                 feats = feats.to(device)
-                up = torch.softmax(model(feats), dim=1)[:,1].cpu().numpy()
-                cp = torch.softmax(calibrated_model(feats), dim=1)[:,1].cpu().numpy()
-                all_uncal.append(up); all_cal.append(cp); all_labels.append(labels.numpy())
-        uncal_probs = np.concatenate(all_uncal)
-        cal_probs   = np.concatenate(all_cal)
-        labels_arr  = np.concatenate(all_labels)
-
-        plt.figure(figsize=(8, 6))
-        ax1 = plt.subplot2grid((3,1), (0,0), rowspan=2)
-        ax2 = plt.subplot2grid((3,1), (2,0))
-
-        ax1.plot([0,1], [0,1], '-', color=mondrian['perfect'], linewidth=2)
-        un_frac, un_mean = calibration_curve(labels_arr, uncal_probs, n_bins=5)
-        ca_frac, ca_mean = calibration_curve(labels_arr, cal_probs,   n_bins=5)
-        ax1.plot(un_mean, un_frac, 'o-', color=mondrian['uncal'], linewidth=2, markersize=8, label='Uncalibrated')
-        ax1.plot(ca_mean, ca_frac, '^-', color=mondrian['cal'], linewidth=2, markersize=8, label='Calibrated')
-
-        ax2.hist(uncal_probs, bins=5, range=(0,1), histtype='step', linewidth=2, linestyle='-', color=mondrian['uncal'], label='Uncalibrated')
-        ax2.hist(cal_probs, bins=5, range=(0,1), histtype='step', linewidth=2, linestyle='--', color=mondrian['cal'], label='Calibrated')
-
-        for ax in (ax1, ax2):
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            ax.spines['left'].set_linewidth(1.2)
-            ax.spines['bottom'].set_linewidth(1.2)
-            ax.tick_params(axis='both', which='major', labelsize=12)
-
-        ax1.set_ylabel('Fraction of positives', fontsize=14, fontweight='bold')
-        ax1.set_ylim(-0.02, 1.02)
-        ax1.legend(loc='lower right', fontsize=12, frameon=False)
-        ax1.set_title(f'Calibration Plot (Fold {fold})', fontsize=16, fontweight='bold')
-
-        ax2.set_xlabel('Mean predicted value', fontsize=14, fontweight='bold')
-        ax2.set_ylabel('Count', fontsize=14, fontweight='bold')
-        ax2.legend(loc='upper center', ncol=2, fontsize=12, frameon=False)
-
-        plt.tight_layout()
-        save_path = os.path.join(plots_dir, f'fold_{fold}_mondrian_calibration.png')
-        plt.savefig(save_path, dpi=300)
-        plt.close()
-        print(f"Saved calibration plot: {save_path}")
+                calibrated_logits = calibrated_model(feats)
+                calibrated_probs = torch.softmax(calibrated_logits, dim=1).cpu().numpy()
+                
+                for i in range(len(patient_ids)):
+                    fold_preds.append({
+                        'patient_id': patient_ids[i],
+                        'true_label': labels[i].item(),
+                        'prob': calibrated_probs[i, 1], # Probability of positive class (AS)
+                        'logit_0': calibrated_logits[i, 0].item(),
+                        'logit_1': calibrated_logits[i, 1].item(),
+                    })
+        
+        preds_df = pd.DataFrame(fold_preds)
+        preds_df.to_csv(os.path.join(preds_dir, f'fold_{fold}_predictions.csv'), index=False)
+        print(f"✅ Saved calibrated predictions for fold {fold} to {preds_dir}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train ClinicalNet with Temperature Scaling & Mondrian-style calibration plots")
     parser.add_argument("--data_dir", required=True, help="Path to directory with fold_*_train.csv and fold_*_val.csv files.")
     parser.add_argument("--model_dir", required=True, help="Directory to save models and plots.")
     parser.add_argument("--epochs", type=int, default=50, help="Max training epochs.")
+    parser.add_argument("--patience", type=int, default=3, help="Epochs to wait for improvement before early stopping.")
+    parser.add_argument("--n_splits", type=int, default=5, help="Number of cross-validation folds.")
     parser.add_argument("--label_column", type=str, default="label", help="Name of the label column.")
-    parser.add_argument("--id_column", type=str, default="patient_id", help="Name of the ID column.")
+    parser.add_argument("--id_column", type=str, default="Patient_ID", help="Name of the ID column (case-sensitive).")
     args = parser.parse_args()
     train(args)
