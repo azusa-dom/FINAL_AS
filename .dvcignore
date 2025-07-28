@@ -1,0 +1,10 @@
+# DVC忽略文件
+*.pyc
+__pycache__/
+*.log
+.DS_Store
+.env
+.venv/
+venv/
+results/temp/
+*.tmp 

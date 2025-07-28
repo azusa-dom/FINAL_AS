@@ -34,8 +34,8 @@ data/
 *.npz
 *.zip
 
-# 可视化结果默认不提交，但允许关键输出
-results/
+# 可视化结果配置
+results/*
 !results/final_run/
 !results/final_run/**
 !results/grad_cam/
@@ -43,22 +43,15 @@ results/
 !results/mri_viz/
 !results/mri_viz/**
 
-# 临时测试/调试生成文件
+# 临时文件
 *.bak
 *.tmp
 *.old
 
-# VS Code 默认配置（可选）
-*.code-workspace
-
-# 环境文件（如虚拟环境）
+# 环境文件
 .env/
 venv/
 ENV/
 env/
-
-# pip freeze 生成文件（如果你用 conda 可忽略）
 pip-selfcheck.json
-results/
-*.pth # 排除模型权重文件
-*.nii.gz # 排除 MRI 文件
+

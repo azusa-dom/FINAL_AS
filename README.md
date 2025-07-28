@@ -1,224 +1,219 @@
+# AS Diagnosis AI System
 
-# Dual-Modality AI Framework  
-_Real-World Ankylosing Spondylitis (AS) Diagnosis from MRI & Clinical Data_
+基于双通路人工智能框架的强直性脊柱炎诊断系统
 
-> **MRI pipeline × Tabular (lab + demographics) pipeline**  
-> Reproducible • Calibrated • Fully interpretable • Fusion-ready
+## 📋 项目概述
 
----
+本项目实现了一个创新的双通路AI诊断框架，用于强直性脊柱炎(Ankylosing Spondylitis, AS)的早期诊断。该系统解决了多模态数据异步问题，通过独立的临床和影像学管道提供可靠的诊断支持。
 
-## 📁 Repository Layout
+## 🏗️ 系统架构
+
+### 双通路设计
+- **临床数据管道**: 基于大规模EHR数据的ClinicalNet模型
+- **MRI分析管道**: 基于小样本MRI数据的ImagingNet模型
+- **融合就绪架构**: 支持未来多模态融合的模块化设计
+
+### 技术特点
+- ✅ 容器化部署 (Docker)
+- ✅ HL7 FHIR兼容API
+- ✅ 数据版本控制 (DVC)
+- ✅ 可解释性分析 (Grad-CAM, SHAP)
+- ✅ 概率校准和决策分析
+
+## 📁 项目结构
 
 ```
+FINAL_AS/
+├── src/
+│   ├── clinical_data_src/          # 临床数据处理
+│   │   ├── clinical_data_preparation/
+│   │   ├── training_clinical_data/
+│   │   └── evaluation_clinical_data/
+│   ├── mri_src/                    # MRI分析
+│   │   ├── preprocessing/
+│   │   ├── feature_extraction/
+│   │   ├── analysis/
+│   │   └── gradcam/
+│   ├── utils/                      # 通用工具
+│   ├── visualization/              # 可视化模块
+│   └── api/                        # FHIR API接口
+├── data/                           # 数据目录
+├── models/                         # 模型文件
+├── results/                        # 结果输出
+├── Dockerfile                      # 容器配置
+├── requirements.txt                # 依赖包
+└── README.md                       # 项目文档
+```
 
-FINAL\_AS/
-├── data/                  # ⚠ ignored by Git – put raw data here
-│   ├── mri\_AS/            # AS patient MRI
-│   ├── mri\_health/        # healthy controls
-│   └── raw\_lab\_data/      # CSV / XLSX with clinical features
-│
-├── scripts/               # runnable pipeline scripts (entry points)
-│   ├── clinical/          # tabular preprocessing / balancing
-│   ├── mri/               # MRI sub-modules
-│   │   ├── conversion/    # DICOM / H5 → PNG / NIfTI
-│   │   ├── preprocessing/ # bias-field, ROI, slice selection
-│   │   ├── analysis/      # AUC, bootstrap, permutation test
-│   │   ├── gradcam/       # CAM generation (AS vs healthy)
-│   │   ├── visualization/ # t-SNE / UMAP / KDE plots
-│   │   └── run/           # one-click orchestration
-│   ├── postprocess/       # SHAP + Decision Curve Analysis
-│   └── unused/            # archived or experimental utilities
-│
-├── src/                   # reusable library code (importable as `final_as`)
-│   ├── core/              # dataset & evaluation helpers
-│   ├── models/            # CNN / MLP / fusion head definitions
-│   ├── training/          # training loops for each modality
-│   ├── inference/         # model inference / prediction
-│   ├── preprocessing/     # fold splits etc.
-│   ├── feature\_extraction/
-│   ├── analysis/          # MRI feature analytics
-│   ├── evaluation/        # bootstrap AUC & AP
-│   └── utils/             # generic helpers
-│
-├── checkpoints/ 🔒        # \*.pth weights (git-ignored)
-├── results/               # ready-to-publish outputs
-│   ├── clinical/ …        # metrics, SHAP, calibrated curves
-│   └── mri/ …             # t-SNE, Grad-CAM, etc.
-│
-├── requirements.txt       # Python >=3.10 dependency lock
-├── LICENSE                # MIT
-└── README.md              # ← you are here
+## 🚀 快速开始
 
-````
-
----
-
-## 👩‍🔬 Method Highlights
-
-| Modality | Samples / Subjects | Core model | Calibration | Interpretability |
-|----------|-------------------|------------|-------------|------------------|
-| **Clinical** | 4 254 cases, 27 features | 2-layer MLP (ClinicalNet) | Temperature scaling (ECE 0.021) | SHAP + Decision Curve |
-| **MRI** | 8 subjects, 39 slices | ResNet-18 frozen encoder → logistic probe | logistic probability | Grad-CAM, t-SNE |
-
-Pipelines are **fully independent** (no paired requirement) yet emit **comparable, calibrated probabilities** – enabling late fusion.
-
----
-
-## ⚙ Environment Setup
+### 1. 环境准备
 
 ```bash
-conda create -n final_as python=3.10
-conda activate final_as
+# 克隆项目
+git clone <repository-url>
+cd FINAL_AS
+
+# 创建虚拟环境
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# 或
+venv\Scripts\activate     # Windows
+
+# 安装依赖
 pip install -r requirements.txt
-
-# install the right CUDA build of PyTorch
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-````
-
----
-
-## 📦 Data Preparation
-
-```
-data/
-├── mri_AS/patient001/*.png              # or DICOM/NIfTI if you run conversion first
-├── mri_health/health001/subjA/*.png
-└── raw_lab_data/Raw_Lab_Dataset.csv     # 27 columns as described in the paper
 ```
 
-Large or sensitive data remain local; `.gitignore` excludes the whole `data/` directory.
-
----
-
-## 🚀 Quick Start
-
-### 1 — Clinical pipeline
+### 2. 数据准备
 
 ```bash
-# preprocessing + SMOTE fold generation
-python scripts/clinical/preprocess_clinical.py \
-       --csv data/raw_lab_data/Raw_Lab_Dataset.csv
+# 临床数据预处理
+python src/clinical_data_src/clinical_data_preparation/preprocess_clinical_final.py \
+    data/raw/clinical_data.csv \
+    data/processed/clinical/
 
-# training + calibration
-python src/training/train.py \
-       --folds results/clinical/clinical_data_fold
+# MRI数据预处理
+python src/mri_src/preprocessing/preprocess.py \
+    data/raw/mri/ \
+    data/processed/mri/
 ```
 
-Key outputs appear in `results/clinical/` (metrics CSV, SHAP plots, calibrated curves).
-
----
-
-### 2 — MRI pipeline
+### 3. 模型训练
 
 ```bash
-# optional DICOM → PNG conversion
-python scripts/mri/conversion/mri_convert_dicom_to_png.py \
-       --input data/mri_AS \
-       --output data/mri_images_png
+# 训练临床模型
+python src/clinical_data_src/training_clinical_data/train_clinical_mondrian.py \
+    --data_dir data/processed/clinical/ \
+    --model_dir models/clinical/ \
+    --epochs 50
 
-# slice-level embedding + bootstrap CI
-python scripts/mri/analysis/mri_eval_auc_bootstrap.py \
-       --png_dir data/mri_images_png
+# MRI特征提取和分析
+python src/mri_src/analysis/make_l2o_predictions.py \
+    --data-root data/processed/mri/ \
+    --out-csv results/mri/l2o_predictions.csv
 ```
 
-Grad-CAM heat-maps:
+### 4. 启动API服务
 
 ```bash
-python scripts/mri/gradcam/As_run_sij_gradcam_analysis.py \
-       --png_dir data/mri_images_png
+# 使用Docker
+docker build -t as-diagnosis-ai .
+docker run -p 8080:8080 as-diagnosis-ai
+
+# 或直接运行
+python src/api/fhir_server.py
 ```
 
-All figures land in `results/mri/`.
+## 📊 性能指标
 
----
+### 临床模型 (ClinicalNet)
+- **AUROC**: 0.924 (95% CI: 0.915-0.932)
+- **敏感性**: 98.6%
+- **特异性**: 77.9%
+- **校准误差 (ECE)**: 0.016
 
-## 🔍 How to Inspect Results
+### MRI模型 (ImagingNet)
+- **AUROC**: 0.83 (permutation p = 0.017)
+- **样本量**: 8个受试者 (39个切片)
+- **特征维度**: 512维
 
+## 🔬 方法学特点
+
+### 1. 数据不平衡处理
+- SMOTE过采样技术
+- 类别权重平衡
+- 分层交叉验证
+
+### 2. 概率校准
+- 温度缩放校准
+- 期望校准误差 (ECE) 评估
+- 决策曲线分析 (DCA)
+
+### 3. 可解释性
+- SHAP特征重要性分析
+- Grad-CAM注意力映射
+- 特征空间几何分析
+
+### 4. 小样本学习
+- ImageNet预训练特征提取
+- Leave-Two-Out交叉验证
+- 方向性校正机制
+
+## 📈 结果可视化
+
+系统提供多种可视化功能：
+
+```python
+# 校准曲线
+python src/clinical_data_src/evaluation_clinical_data/plot_overall_metrics.py
+
+# Grad-CAM注意力图
+python src/mri_src/gradcam/As_run_sij_gradcam_analysis.py
+
+# 特征空间投影
+python src/mri_src/mri_feature_analysis/feature_space_geometry.py
+```
+
+## 🔧 API使用
+
+### 临床数据诊断
 ```bash
-# Clinical ROC curve
-open results/clinical/data_results/sci_roc_curve.png
-
-# MRI t-SNE embedding
-open results/mri/embedding_viz/tsne_slice_level.png
-
-# Example Grad-CAM overlay
-open results/mri/grad_cam/as/_slice03_gradcam.png
+curl -X POST "http://localhost:8080/diagnose" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "patient_id": "P001",
+    "request_type": "clinical",
+    "clinical_data": {
+      "patient_id": "P001",
+      "age": 35,
+      "sex": "M",
+      "hla_b27": "positive",
+      "esr": 45.2,
+      "crp": 18.5
+    }
+  }'
 ```
 
----
-
-## 🔬 Interpretability Modules
-
-| Script                                        | Output                  |
-| --------------------------------------------- | ----------------------- |
-| `scripts/postprocess/shap_compute_summary.py` | global SHAP values      |
-| `.../shap_compute_dca.py`                     | decision curve analysis |
-| `scripts/mri/gradcam/*.py`                    | attention heat-maps     |
-
----
-
-## 🔗 Fusion (optional)
-
-`src/training/train_late_fusion.py` already implements:
-
-* Probability weighted average
-* Meta-learner stacking
-
-Simply point it to the calibrated CSVs from both modalities.
-
----
-
-## 🛠 Tips & Troubleshooting
-
-| Issue                    | Fix                                                      |
-| ------------------------ | -------------------------------------------------------- |
-| CUDA OOM                 | decrease `--batch_size` in preprocessing & train scripts |
-| Results slightly vary    | set `--seed 42` everywhere                               |
-| Missing ImageNet weights | first `python -m torch.hub` or allow auto-download       |
-
----
-
-## 🤝 Contributing
-
-1. Fork → branch `feature/<name>`
-2. Run `black . && isort .` before PR
-3. Include minimal working example & docstring
-
----
-
-## 📜 License
-
-Released under the MIT License.
-
----
-
-### Contact
-
-Open an issue or drop an e-mail: **[zczqzh9@ucl.ac.uk](mailto:zczqzh9@ucl.ac.uk)** 🙌
-
-
+### MRI诊断
+```bash
+curl -X POST "http://localhost:8080/diagnose" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "patient_id": "P001",
+    "request_type": "mri",
+    "mri_data": {
+      "patient_id": "P001",
+      "image_path": "/path/to/mri/image.nii.gz",
+      "sequence_type": "T1"
+    }
+  }'
 ```
 
-# REFERENCES
+## 📚 参考文献
 
-  - Ai, F., Zhang, W., Liu, H., Song, W., Wu, H., Han, Y., et al. (2012) Value of diffusion-weighted quantification for MRI assessment of sacroiliac joints in early diagnosis of ankylosing spondylitis. *Rheumatology International*, **32**(12), pp.4009–4015. [https://doi.org/10.1007/s00296-011-2253-0(https://doi.org/10.1007/s00296-011-2253-0)
-  - Bennani, S., Ohayon, S., Laleye, F., Bauvin, P., Messas, E., et al. (2025) Is multimodal better? A systematic review of multimodal versus unimodal machine learning in clinical decision-making. *medRxiv [Preprint.* [https://doi.org/10.1101/2025.03.12.25322656(https://doi.org/10.1101/2025.03.12.25322656)
-  - Bradbury, L.A., Hollis, K.A., Gazer, B., Gollow, I., Shankar, A., Cope, N., et al. (2018) Diffusion-weighted imaging as a sensitive and specific MRI sequence in the diagnosis of chronic nonbacterial osteomyelitis of the sacroiliac joints in children. *The Journal of Rheumatology*, **45**(5), pp.690–697. [https://doi.org/10.3899/jrheum.170871(https://doi.org/10.3899/jrheum.170871)
-  - Dubey, S., Chan, A., Adebajo, A.O., Walker, D. and Treglia, G. (2024) Artificial intelligence and machine learning in rheumatology: A systematic literature review. *Rheumatology*, **63**(8), pp.2040–2053. [https://doi.org/10.1093/rheumatology/kead190(https://doi.org/10.1093/rheumatology/kead190)
-  - Hosny, A., Parmar, C., Quackenbush, J., Schwartz, L.H. and Aerts, H.J.W.L. (2018) Artificial intelligence in radiology. *Nature Reviews Cancer*, **18**, pp.500–510. [https://doi.org/10.1038/s41568-018-0016-5(https://doi.org/10.1038/s41568-018-0016-5)
-  - Jamaludin, A., Kadir, T. and Zisserman, A. (2017) Automated analysis of spinal MRI using deep learning. *Medical Image Analysis*, **40**, pp.67–77. [https://doi.org/10.1016/j.media.2017.06.003(https://doi.org/10.1016/j.media.2017.06.003)
-  - Li, H., Zhou, Y., Zhang, Q., Tao, X., Liang, T., Jiang, J., et al. (2023) A multicentre artificial intelligence tool for ankylosing spondylitis supervised by human experts. *Frontiers in Public Health*, **11**, 1063633. [https://doi.org/10.3389/fpubh.2023.1063633(https://doi.org/10.3389/fpubh.2023.1063633)
-  - Liao, W., Matsumoto, T., Tanaka, M., Kakehi, T., Nakajima, K., Imagawa, T., et al. (2021) Machine learning in rheumatoid arthritis: applications and challenges. *Modern Rheumatology*, **31**(1), pp.48–55. [https://doi.org/10.1080/14397595.2020.1766343(https://doi.org/10.1080/14397595.2020.1766343)
-  - Liu, H., Yang, C., Zhao, M., Ni, L., Chen, R., Zheng, Z., et al. (2020) IgG galactosylation status combined with MYOM2-rs2294066 precisely predicts anti-TNF response in ankylosing spondylitis. *Frontiers in Immunology*, **11**, 600019. [https://doi.org/10.3389/fimmu.2020.600019(https://doi.org/10.3389/fimmu.2020.600019)
-  - Maksymowych, W.P., Wichuk, S., Chiowchanwisawakit, P., Lambert, R.G.W. and Pedersen, S.J. (2023) Resolution of MRI inflammation and its association with long-term outcomes in patients with axial spondyloarthritis treated with etanercept. *RMD Open*, **9**(3), e003123. [https://doi.org/10.1136/rmdopen-2023-003123(https://doi.org/10.1136/rmdopen-2023-003123)
-  - Pons, M., Georgiadis, S., Hetland, M.L., et al. (2025) Predictors of secukinumab treatment response and continuation in axial spondyloarthritis: Results from the EuroSpA research collaboration network. *The Journal of Rheumatology [Epub ahead of print.* [https://doi.org/10.3899/jrheum.2024-0920(https://doi.org/10.3899/jrheum.2024-0920)
-  - Tas, N.P., Kaya, O., Macin, G., Tasci, B., Dogan, S. and Tuncer, T. (2023) ASNET: A novel AI framework for accurate ankylosing spondylitis diagnosis from MRI. *Biomedicines*, **11**(9), 2441. [https://doi.org/10.3390/biomedicines11092441(https://doi.org/10.3390/biomedicines11092441)
-  - Tas, S., Siemons, M., Yilmaz, E., Karabulut, E., Ozkan, E., Algin, O. and Cetin, P. (2024) Performance of different classification algorithms in differentiating sacroiliitis grades in patients with axial spondyloarthritis using an MRI-based radiomics model. *Biomedicines*, **12**(1), 200. [https://doi.org/10.3390/biomedicines12010200(https://doi.org/10.3390/biomedicines12010200)
-  - Tenório, A.P.M., Cunha, L.P., Almeida, D.A., Ferreira-Junior, J.R., Appenzeller, S. and Rittner, L. (2021) Radiomic diagnosis of sacroiliitis on MRI. *Physics in Medicine & Biology*, **66**(20), 205002. [https://doi.org/10.1088/1361-6560/ac2502(https://doi.org/10.1088/1361-6560/ac2502)
-  - Shenavarmasouleh, A., Wahab, H.A., Khaled, M., Sonawane, R., Henry, R. and Iyer, R.K. (2025) Algorithmic foundations for AI in imaging: Dataset design and benchmarking practices. *Data in Brief*, **50**, 109784. [https://doi.org/10.1016/j.dib.2024.109784(https://doi.org/10.1016/j.dib.2024.109784)
-  - van der Heijde, D., Landewé, R., Rudwaleit, M., et al. (2018) MRI inflammation at the vertebral unit level and clinical progression in patients with early axial spondyloarthritis: data from the DESIR cohort. *Rheumatology*, **57**(6), pp.1037–1044. [https://doi.org/10.1093/rheumatology/key021(https://doi.org/10.1093/rheumatology/key021)
-  - Venerito, V., Brusi, V., Spinelli, F.R., et al. (2023) Beyond the horizon: Innovations and future directions in axial spondyloarthritis. *Archives of Rheumatology*, **38**(4), pp.491–498. [https://doi.org/10.46497/ArchRheumatol.2023.9535(https://doi.org/10.46497/ArchRheumatol.2023.9535)
-  - Groza, A., Popescu, D., Ionescu, R., et al. (2021) Multimodal deep learning for clinical prognosis from medical imaging and electronic health records. *Scientific Reports*, **11**, 13594. [https://doi.org/10.1038/s41598-021-93010-0(https://doi.org/10.1038/s41598-021-93010-0)
-  - Lee, J., Laouar, Y., Tsoi, L.C. and Zhou, X. (2025) Community series in towards precision medicine for immune-mediated disorders: Advances in using big data and artificial intelligence to understand heterogeneity in disease pathogenesis. *Frontiers in Immunology*, **15**, 1553004. [https://doi.org/10.3389/fimmu.2025.1553004(https://doi.org/10.3389/fimmu.2025.1553004)
-  - Vastesaeger, N., van der Heijde, D., Inman, R.D., et al. (2011) Predicting the outcome of ankylosing spondylitis therapy based on baseline characteristics: Data from the ASSERT trial. *The Journal of Rheumatology*, **38**(6), pp.1250–1257. [https://doi.org/10.3899/jrheum.100345(https://doi.org/10.3899/jrheum.100345)
-  - Thorley, A., Jensen, M., Brown, S., et al. (2023) Imaging biomarkers for treatment prediction in axial spondyloarthritis: A review. *Current Rheumatology Reports*, **25**(2), pp.123–135. [https://doi.org/10.1007/s11926-023-01078-5(https://doi.org/10.1007/s11926-023-01078-5)
+本系统基于以下研究论文实现：
+- 强直性脊柱炎诊断延迟的临床挑战
+- 多模态AI中的非配对数据障碍
+- 双通路AI框架的设计与实现
+
+## 🤝 贡献指南
+
+1. Fork项目
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 打开Pull Request
+
+## 📄 许可证
+
+本项目采用MIT许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+
+## 📞 联系方式
+
+如有问题或建议，请通过以下方式联系：
+- 邮箱: [your-email@example.com]
+- 项目Issues: [GitHub Issues]
+
+## 🙏 致谢
+
+感谢所有为本项目做出贡献的研究人员和开发者。

@@ -19,8 +19,28 @@ import os
 
 
 def build_dataset(df, method="undersample"):
+    # 检查数据集是否为空
+    if df.empty:
+        raise ValueError("❌ 输入数据集为空")
+    
+    # 检查Disease列是否存在
+    if "Disease" not in df.columns:
+        raise ValueError("❌ 缺少必要列：Disease")
+    
+    # 检查Disease列是否为空
+    if df["Disease"].isna().all():
+        raise ValueError("❌ Disease列全为空值")
+    
     pos_df = df[df["Disease"] == "Ankylosing Spondylitis"].copy()
     neg_df = df[df["Disease"] != "Ankylosing Spondylitis"].copy()
+
+    # 检查是否有AS病例
+    if len(pos_df) == 0:
+        raise ValueError("❌ 数据集中没有找到'Ankylosing Spondylitis'病例")
+    
+    # 检查是否有非AS病例
+    if len(neg_df) == 0:
+        raise ValueError("❌ 数据集中所有病例都是'Ankylosing Spondylitis'，无法构建负样本")
 
     pos_df["label"] = 1
     neg_df["label"] = 0
@@ -52,13 +72,20 @@ def main(args):
         raise FileNotFoundError(f"❌ 输入文件不存在: {args.input}")
 
     df = pd.read_csv(args.input)
-    if "Disease" not in df.columns:
-        raise ValueError("❌ 缺少必要列：Disease")
-
+    
+    # 数据验证已在build_dataset函数中处理
     balanced_df = build_dataset(df, method=args.method)
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    
+    # 改进输出目录处理
+    output_dir = os.path.dirname(args.output)
+    if output_dir:  # 只有当输出路径包含目录时才创建
+        os.makedirs(output_dir, exist_ok=True)
+    
     balanced_df.to_csv(args.output, index=False)
     print(f"✅ 已保存平衡数据集至: {args.output}")
+    print(f"📊 最终数据集大小: {len(balanced_df)} 行")
+    print(f"📊 正样本数量: {len(balanced_df[balanced_df['label'] == 1])}")
+    print(f"📊 负样本数量: {len(balanced_df[balanced_df['label'] == 0])}")
 
 
 if __name__ == "__main__":
