@@ -317,8 +317,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Contact
 
 For questions or suggestions, please contact:
-- Email: [your-email@example.com]
-- Project Issues: [GitHub Issues]
+- Email: [zczqzh9@ucl.ac.uk]
+
 
 ## 🙏 Acknowledgments
 
