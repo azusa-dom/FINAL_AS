@@ -68,7 +68,16 @@ Our framework introduces:
 
 #### 2.1.1 Clinical Cohort: Retrospective Structured Data
 
-The clinical pathway utilized 4,254 outpatient encounters from a retrospective specialist clinic cohort, comprising 851 AS cases (20%) and 3,403 disease controls (80%). Data included 27 harmonized predictors spanning demographics, serology, autoimmune markers, and physician-graded assessments.
+The clinical pathway utilized 4,254 outpatient encounters from a retrospective specialist clinic cohort, comprising 851 AS cases (20%) and 3,403 disease controls (80%). The original dataset contained approximately 10,000 samples with multiple rheumatic diseases, which was processed through the following pipeline:
+
+**Data Processing Pipeline**:
+1. **Original Dataset**: ~10,000 samples with multiple rheumatic diseases
+2. **Disease Filtering**: Extracted 851 AS cases and 3,403 non-AS controls
+3. **Balancing Strategy**: Applied undersampling to create balanced training set (851 AS + 851 controls = 1,702 samples)
+4. **Cross-Validation**: 5-fold stratified split (~1,362 training + ~340 validation per fold)
+5. **SMOTE Augmentation**: Applied to training folds to further balance classes
+
+Data included 27 harmonized predictors spanning demographics, serology, autoimmune markers, and physician-graded assessments.
 
 **Key Variables**:
 - Demographics: Age, sex
@@ -97,6 +106,14 @@ Consequently, two separate classifiers—one tabular and one imaging—were trai
 The clinical pathway converts 4,254 outpatient records into calibrated probabilities through four sequential blocks: preprocessing, feature engineering, model construction, and post-hoc calibration.
 
 #### 2.3.1 Data Origin, Governance, and Split Strategy
+
+The clinical pathway began with approximately 10,000 outpatient records containing multiple rheumatic diseases. Through systematic data processing, we extracted 851 confirmed AS cases and 3,403 non-AS controls, resulting in a total of 4,254 encounters.
+
+**Data Processing Steps**:
+1. **Initial Filtering**: From ~10,000 samples, identified 851 AS cases and 3,403 non-AS controls
+2. **Balancing**: Applied undersampling to create balanced training set (851 AS + 851 controls = 1,702 samples)
+3. **Cross-Validation**: Implemented 5-fold stratified cross-validation (shuffle=True, seed=42)
+4. **SMOTE Augmentation**: Applied synthetic minority oversampling to training folds
 
 Twenty-seven harmonized predictors from the development subset were used as inputs. Records were split via stratified five-fold cross-validation (shuffle=True, seed=42); the untouched remainder was reserved for external testing.
 
@@ -187,7 +204,7 @@ Due to extremely small sample size (N=8) and bespoke L2O-CV design, logistic reg
 
 ### 3.1 Baseline Characteristics of the Clinical Cohort
 
-Among the 4,254 eligible encounters, 851 (20%) carried a reference-standard diagnosis of ankylosing spondylitis (AS) and 3,403 (80%) served as disease controls.
+Among the 4,254 eligible encounters (derived from original ~10,000 samples), 851 (20%) carried a reference-standard diagnosis of ankylosing spondylitis (AS) and 3,403 (80%) served as disease controls. The final balanced training set comprised 1,702 samples (851 AS + 851 controls) after undersampling and SMOTE augmentation.
 
 **Key Demographic and Laboratory Variables**:
 

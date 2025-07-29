@@ -366,9 +366,9 @@ def plot_confusion_matrix(model_name, y_true, y_probs, plot_save_path, threshold
 def main_workflow():
     # Define standard locations for data and results using the corrected PROJECT_ROOT
     DATA_DIR = os.path.join(PROJECT_ROOT, "data/processed_clinical")
-    PRED_DIR = os.path.join(PROJECT_ROOT, "results/predictions")
+    PRED_DIR = os.path.join(PROJECT_ROOT, "results/consolidated/predictions")
     # Corrected path for ClinicalNet predictions
-    CLINICAL_NET_PRED_SOURCE_DIR = os.path.join(PROJECT_ROOT, "results/clinical/clinical_model_clinical_preds")
+    CLINICAL_NET_PRED_SOURCE_DIR = os.path.join(PROJECT_ROOT, "results/consolidated/clinical/clinical_model_clinical_preds")
     
     os.makedirs(PRED_DIR, exist_ok=True)
     

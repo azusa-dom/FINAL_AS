@@ -15,7 +15,8 @@ import torch
 from pathlib import Path
 
 # 添加项目根目录到路径
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
 
 class TestClinicalPipeline(unittest.TestCase):
     """测试临床数据管道"""
@@ -262,6 +263,7 @@ class TestConfiguration(unittest.TestCase):
     def test_config_import(self):
         """测试配置导入"""
         try:
+            sys.path.append(project_root)
             from config import ClinicalConfig, MRIConfig, APIConfig
             self.assertIsNotNone(ClinicalConfig)
             self.assertIsNotNone(MRIConfig)
@@ -271,6 +273,7 @@ class TestConfiguration(unittest.TestCase):
     
     def test_config_values(self):
         """测试配置值"""
+        sys.path.append(project_root)
         from config import ClinicalConfig, MRIConfig
         
         # 测试临床配置

@@ -11,7 +11,8 @@ import logging
 from pathlib import Path
 
 # 添加项目根目录到路径
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
 
 def setup_logging():
     """设置日志配置"""
@@ -48,7 +49,7 @@ def run_clinical_pipeline(data_dir: str, output_dir: str, logger):
         logger.info("步骤2: 临床模型训练")
         import subprocess
         
-        train_script = "src/clinical_data_src/training_clinical_data/train_clinical_mondrian.py"
+        train_script = os.path.join(project_root, "src/clinical_data_src/training_clinical_data/train_clinical_mondrian.py")
         cmd = [
             sys.executable, train_script,
             "--data_dir", clinical_output,
@@ -66,7 +67,7 @@ def run_clinical_pipeline(data_dir: str, output_dir: str, logger):
         
         # 3. 模型评估
         logger.info("步骤3: 临床模型评估")
-        eval_script = "src/clinical_data_src/evaluation_clinical_data/calculate_3_models_final_stats.py"
+        eval_script = os.path.join(project_root, "src/clinical_data_src/evaluation_clinical_data/calculate_3_models_final_stats.py")
         
         result = subprocess.run([sys.executable, eval_script], capture_output=True, text=True)
         if result.returncode == 0:
@@ -109,7 +110,7 @@ def run_mri_pipeline(data_dir: str, output_dir: str, logger):
         
         # 2. 特征提取
         logger.info("步骤2: MRI特征提取")
-        feature_script = "src/mri_src/feature_extraction/extract_mri_features.py"
+        feature_script = os.path.join(project_root, "src/mri_src/feature_extraction/extract_mri_features.py")
         
         import subprocess
         cmd = [
@@ -127,7 +128,7 @@ def run_mri_pipeline(data_dir: str, output_dir: str, logger):
         
         # 3. 分析预测
         logger.info("步骤3: MRI分析预测")
-        analysis_script = "src/mri_src/analysis/make_l2o_predictions.py"
+        analysis_script = os.path.join(project_root, "src/mri_src/analysis/make_l2o_predictions.py")
         
         cmd = [
             sys.executable, analysis_script,
@@ -213,7 +214,7 @@ def run_gradcam_analysis(data_dir: str, output_dir: str, logger):
     logger.info("开始Grad-CAM分析...")
     
     try:
-        gradcam_script = "src/mri_src/gradcam/As_run_sij_gradcam_analysis.py"
+        gradcam_script = os.path.join(project_root, "src/mri_src/gradcam/As_run_sij_gradcam_analysis.py")
         
         import subprocess
         cmd = [
@@ -237,7 +238,7 @@ def run_fusion_analysis(output_dir: str, logger):
     logger.info("开始融合分析...")
     
     try:
-        fusion_script = "src/clinical_data_src/training_clinical_data/train_late_fusion.py"
+        fusion_script = os.path.join(project_root, "src/clinical_data_src/training_clinical_data/train_late_fusion.py")
         
         clinical_preds = os.path.join(output_dir, "clinical", "predictions.csv")
         mri_preds = os.path.join(output_dir, "mri", "corrected_predictions.csv")
