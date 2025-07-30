@@ -40,9 +40,16 @@ Through specialized small-sample optimization strategies, we successfully solved
 ## 📁 Documentation Structure
 
 ### 🔬 Technical Documentation
+- **[System Architecture](technical/SYSTEM_ARCHITECTURE.md)** - System architecture with small-sample optimization
 - **[Comprehensive Technical Report](technical/COMPREHENSIVE_TECHNICAL_REPORT.md)** - Complete technical implementation details
 - **[MRI Improvement Strategy](technical/MRI_IMPROVEMENT_STRATEGY.md)** - Original improvement strategy and breakthrough
 - **[Enhanced MRI Analysis Summary](technical/ENHANCED_MRI_ANALYSIS_SUMMARY.md)** - Technical implementation summary
+
+### 📊 Visualizations
+- **[Detailed Architecture Diagram](technical/system_architecture_detailed_bw.png)** - Complete system architecture (PNG)
+- **[Detailed Architecture Diagram](technical/system_architecture_detailed_bw.pdf)** - Complete system architecture (PDF)
+- **[Simplified Architecture Diagram](technical/system_architecture_simplified_bw.png)** - Simplified architecture (PNG)
+- **[Simplified Architecture Diagram](technical/system_architecture_simplified_bw.pdf)** - Simplified architecture (PDF)
 
 ### 📄 Paper Documentation
 - **[Paper Abstract](paper/PAPER_ABSTRACT.md)** - Research abstract and key results
