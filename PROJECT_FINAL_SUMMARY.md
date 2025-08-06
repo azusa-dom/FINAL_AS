@@ -2,7 +2,7 @@
 ## Final Project Summary
 
 ### 📋 Project Title
-**"DDI-AS: Dual Diagnostic Intelligence Framework for Ankylosing Spondylitis - A Novel Approach to Multimodal Data Asynchrony in Clinical AI"**
+**"Dual Diagnostic Intelligence: A Novel AI Framework for Ankylosing Spondylitis Diagnosis Under Real-World Data Constraints - Independent Validation on Clinical and Imaging Cohorts"**
 
 ### 🎯 Project Overview
 This research project presents a groundbreaking dual-pathway artificial intelligence framework designed to address the critical challenge of diagnosing Ankylosing Spondylitis (AS) in real-world clinical settings where perfectly paired multimodal datasets are rare. The framework specifically tackles the **Multimodal Data Asynchrony Problem (MDAP)** by implementing independent ClinicalNet and ImagingNet streams with sophisticated late-fusion ensemble integration.
@@ -158,7 +158,7 @@ If you use this work in your research, please cite:
 
 ```bibtex
 @article{ddi_as_2025,
-  title={DDI-AS: Dual Diagnostic Intelligence Framework for Ankylosing Spondylitis - A Novel Approach to Multimodal Data Asynchrony in Clinical AI},
+  title={Dual Diagnostic Intelligence: A Novel AI Framework for Ankylosing Spondylitis Diagnosis Under Real-World Data Constraints - Independent Validation on Clinical and Imaging Cohorts},
   author={[Your Name]},
   journal={[Journal Name]},
   year={2025},
