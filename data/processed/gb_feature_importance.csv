@@ -1,0 +1,11 @@
+Feature,Importance
+HLA-B27_Positive,0.231
+ESR,0.203
+CRP,0.167
+Age,0.128
+RF,0.092
+Anti-CCP,0.071
+C3,0.048
+C4,0.037
+Gender_Male,0.016
+ANA_Positive,0.007

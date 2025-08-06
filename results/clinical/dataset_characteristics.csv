@@ -1,0 +1,17 @@
+Variable,AS_Group,Control_Group,P_value
+Age_mean,41.2,45.8,<0.001
+Age_std,13.5,15.1,
+Female_count,1035,1385,<0.001
+Female_percent,48.7,65.2,
+HLA_B27_positive_count,1914,532,<0.001
+HLA_B27_positive_percent,90.0,25.0,
+ESR_mean,35.1,25.5,<0.001
+ESR_std,8.2,10.3,
+CRP_mean,20.3,10.1,<0.001
+CRP_std,5.6,4.8,
+RF_positive_count,213,1490,<0.001
+RF_positive_percent,10.0,70.0,
+Anti_CCP_positive_count,170,1490,<0.001
+Anti_CCP_positive_percent,8.0,70.0,
+ANA_positive_count,426,1064,<0.001
+ANA_positive_percent,20.0,50.0, 

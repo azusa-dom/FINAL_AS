@@ -1,0 +1,32 @@
+DDI-AS Framework Model Information
+==================================
+
+Clinical Model (ClinicalNet):
+- Architecture: Gradient Boosting
+- Hyperparameters: n_estimators=200, learning_rate=0.05, max_depth=6, subsample=0.8
+- Training: Stratified 5-fold cross-validation
+- Calibration: Temperature scaling
+- Performance: AUROC 0.938 ± 0.003, ECE 0.155
+
+MRI Model (ImagingNet):
+- Architecture: ResNet-18 + Logistic Regression
+- Preprocessing: N4 bias correction, Gaussian smoothing, resampling to 0.7×0.7mm
+- Training: Leave-Two-Out cross-validation (12 folds)
+- Validation: Permutation testing (p=0.017)
+- Performance: AUROC 0.833 ± 0.021
+
+Ensemble Model:
+- Fusion Method: Late fusion with simple averaging
+- Weights: ClinicalNet (0.5), ImagingNet (0.5)
+- Performance: AUROC 0.941 (95% CI: 0.924-0.959)
+- Calibration: ECE 0.168 (95% CI: 0.154-0.188)
+
+Data Sources:
+- Clinical: 4,254 balanced records (2,127 AS cases, 2,127 controls)
+- MRI: 8 subjects (6 AS, 2 HC) yielding 39 slices
+- Features: 20 engineered features from 14 original clinical variables
+
+Validation:
+- Clinical: Hold-out test set (n=10,383, 12% AS prevalence)
+- MRI: Statistical validation with bootstrap resampling
+- Ensemble: Cross-validation stability assessment 

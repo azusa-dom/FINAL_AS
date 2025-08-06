@@ -1,0 +1,26 @@
+{
+    "Random Forest": {
+        "HLA-B27_Positive": 0.245,
+        "ESR": 0.198,
+        "CRP": 0.156,
+        "Age": 0.134,
+        "RF": 0.089,
+        "Anti-CCP": 0.067,
+        "C3": 0.045,
+        "C4": 0.034,
+        "Gender_Male": 0.018,
+        "ANA_Positive": 0.014
+    },
+    "Gradient Boosting": {
+        "HLA-B27_Positive": 0.231,
+        "ESR": 0.203,
+        "CRP": 0.167,
+        "Age": 0.128,
+        "RF": 0.092,
+        "Anti-CCP": 0.071,
+        "C3": 0.048,
+        "C4": 0.037,
+        "Gender_Male": 0.016,
+        "ANA_Positive": 0.007
+    }
+}

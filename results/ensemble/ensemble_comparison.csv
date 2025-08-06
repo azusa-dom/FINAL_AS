@@ -1,0 +1,5 @@
+Model,AUROC,AUROC_std,ECE,ECE_std,Log_Loss,Log_Loss_std
+ClinicalNet,0.938,0.003,0.155,0.000,0.225,0.000
+ImagingNet,0.833,0.021,0.187,0.000,0.420,0.000
+Ensemble,0.941,0.009,0.168,0.009,0.420,0.008
+Improvement,0.003,0.006,0.019,0.009,0.195,0.008 

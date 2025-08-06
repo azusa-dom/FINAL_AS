@@ -1,0 +1,15 @@
+,type,processing
+Age,Numerical,StandardScaler
+ESR,Numerical,Log1p + StandardScaler
+CRP,Numerical,Log1p + StandardScaler
+RF,Numerical,StandardScaler
+Anti-CCP,Numerical,StandardScaler
+C3,Numerical,StandardScaler
+C4,Numerical,StandardScaler
+Gender,Categorical,One-Hot Encoding
+HLA-B27,Categorical,One-Hot Encoding
+ANA,Categorical,One-Hot Encoding
+Anti-Ro,Categorical,One-Hot Encoding
+Anti-La,Categorical,One-Hot Encoding
+Anti-dsDNA,Categorical,One-Hot Encoding
+Anti-Sm,Categorical,One-Hot Encoding

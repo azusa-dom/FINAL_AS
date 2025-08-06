@@ -1,0 +1,11 @@
+Feature,Random_Forest_Importance,Gradient_Boosting_Importance
+HLA-B27_Positive,0.245,0.231
+ESR,0.198,0.203
+CRP,0.156,0.167
+Age,0.134,0.128
+RF,0.089,0.092
+Anti-CCP,0.067,0.071
+C3,0.045,0.048
+C4,0.034,0.037
+Gender_Male,0.018,0.016
+ANA_Positive,0.014,0.007 

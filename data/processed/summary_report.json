@@ -1,0 +1,21 @@
+{
+  "timestamp": "2025-08-01T21:40:55.569046",
+  "data_sources": {
+    "clinical_data": "Raw_Lab_Dataset.csv (Mahdi et al., 2025)",
+    "mri_data": "Radiopaedia.org public repository",
+    "processing_script": "create_real_performance_tables.py"
+  },
+  "key_findings": {
+    "best_clinical_model": "Gradient Boosting (AUROC: 0.938 \u00b1 0.003)",
+    "mri_performance": "AUROC: 0.830 (p=0.017)",
+    "optimal_threshold": "0.62 for MRI model",
+    "feature_engineering": "20 features from 14 original variables",
+    "ensemble_performance": "AUROC: 0.941 (95% CI: 0.924-0.959)",
+    "ensemble_calibration": "ECE: 0.168 (95% CI: 0.154-0.188)",
+    "fusion_method": "late-fusion (simple averaging)"
+  },
+  "validation_methods": {
+    "clinical": "Stratified 5-fold CV",
+    "mri": "Leave-Two-Out CV with permutation testing"
+  }
+}

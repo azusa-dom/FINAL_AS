@@ -1,0 +1,9 @@
+Metric,Value,Std,95_CI_Lower,95_CI_Upper
+AUROC,0.941,0.009,0.924,0.959
+ECE,0.168,0.009,0.154,0.188
+Log_Loss,0.420,0.008,0.405,0.434
+Clinical_AUROC,0.938,0.003,0.935,0.941
+MRI_AUROC,0.833,0.021,0.822,0.844
+Fusion_Method,late-fusion (simple averaging),,,
+Clinical_Weight,0.5,,,
+MRI_Weight,0.5,,, 

@@ -1,0 +1,90 @@
+{
+    "preprocessing_steps": [
+        "Missing value imputation (median for numerical, mode for categorical)",
+        "Log1p transformation for ESR and CRP",
+        "Z-score standardization for all numerical features",
+        "One-hot encoding for categorical variables",
+        "Balanced sampling (50% AS, 50% controls)"
+    ],
+    "feature_mapping": {
+        "Age": {
+            "type": "Numerical",
+            "processing": "StandardScaler"
+        },
+        "ESR": {
+            "type": "Numerical",
+            "processing": "Log1p + StandardScaler"
+        },
+        "CRP": {
+            "type": "Numerical",
+            "processing": "Log1p + StandardScaler"
+        },
+        "RF": {
+            "type": "Numerical",
+            "processing": "StandardScaler"
+        },
+        "Anti-CCP": {
+            "type": "Numerical",
+            "processing": "StandardScaler"
+        },
+        "C3": {
+            "type": "Numerical",
+            "processing": "StandardScaler"
+        },
+        "C4": {
+            "type": "Numerical",
+            "processing": "StandardScaler"
+        },
+        "Gender": {
+            "type": "Categorical",
+            "processing": "One-Hot Encoding"
+        },
+        "HLA-B27": {
+            "type": "Categorical",
+            "processing": "One-Hot Encoding"
+        },
+        "ANA": {
+            "type": "Categorical",
+            "processing": "One-Hot Encoding"
+        },
+        "Anti-Ro": {
+            "type": "Categorical",
+            "processing": "One-Hot Encoding"
+        },
+        "Anti-La": {
+            "type": "Categorical",
+            "processing": "One-Hot Encoding"
+        },
+        "Anti-dsDNA": {
+            "type": "Categorical",
+            "processing": "One-Hot Encoding"
+        },
+        "Anti-Sm": {
+            "type": "Categorical",
+            "processing": "One-Hot Encoding"
+        }
+    },
+    "final_features": [
+        "Age",
+        "ESR",
+        "CRP",
+        "RF",
+        "Anti-CCP",
+        "C3",
+        "C4",
+        "Gender_Female",
+        "Gender_Male",
+        "HLA-B27_Negative",
+        "HLA-B27_Positive",
+        "ANA_Negative",
+        "ANA_Positive",
+        "Anti-Ro_Negative",
+        "Anti-Ro_Positive",
+        "Anti-La_Negative",
+        "Anti-La_Positive",
+        "Anti-dsDNA_Negative",
+        "Anti-dsDNA_Positive",
+        "Anti-Sm_Negative",
+        "Anti-Sm_Positive"
+    ]
+}

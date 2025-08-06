@@ -1,4 +1,0 @@
-*.ipynb linguist-documentation
-results/**/* filter=lfs diff=lfs merge=lfs -text
-*.pth filter=lfs diff=lfs merge=lfs -text
-*.nii.gz filter=lfs diff=lfs merge=lfs -text

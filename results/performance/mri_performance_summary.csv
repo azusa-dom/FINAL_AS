@@ -1,0 +1,8 @@
+Metric,Value,Std,95_CI_Lower,95_CI_Upper
+AUROC,0.833,0.021,0.822,0.844
+Sensitivity,0.986,0.048,0.961,1.000
+Specificity,0.000,0.000,0.000,0.000
+Accuracy,0.750,0.000,0.750,0.750
+ECE,0.187,0.000,0.187,0.187
+Permutation_p_value,0.017,0.000,0.017,0.017
+Optimal_threshold,0.62,0.000,0.62,0.62 

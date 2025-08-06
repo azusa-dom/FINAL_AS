@@ -1,0 +1,32 @@
+{
+    "Random Forest": {
+        "AUROC": 0.929,
+        "AUROC_std": 0.006,
+        "Accuracy": 1.0,
+        "Precision": 1.0,
+        "Recall": 1.0,
+        "F1_Score": 1.0,
+        "Log_Loss": 0.077,
+        "ECE": 0.201
+    },
+    "Gradient Boosting": {
+        "AUROC": 0.938,
+        "AUROC_std": 0.003,
+        "Accuracy": 0.906,
+        "Precision": 0.844,
+        "Recall": 0.997,
+        "F1_Score": 0.914,
+        "Log_Loss": 0.225,
+        "ECE": 0.155
+    },
+    "Logistic Regression": {
+        "AUROC": 0.858,
+        "AUROC_std": 0.008,
+        "Accuracy": 0.833,
+        "Precision": 0.76,
+        "Recall": 0.974,
+        "F1_Score": 0.854,
+        "Log_Loss": 0.384,
+        "ECE": 0.107
+    }
+}

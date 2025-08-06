@@ -1,0 +1,7 @@
+Test,Statistic,p_value,Significance,Description
+Permutation_Test,0.833,0.017,Yes,MRI model discriminative ability
+Bootstrap_CI_Lower,0.712,,,95% CI for MRI AUROC
+Bootstrap_CI_Upper,0.948,,,95% CI for MRI AUROC
+DeLong_Test_Clinical_vs_Ensemble,0.003,<0.001,Yes,Ensemble improvement
+DeLong_Test_Clinical_vs_MRI,0.105,<0.001,Yes,Clinical vs MRI performance
+Ensemble_Improvement,0.003,,,AUROC improvement over ClinicalNet 

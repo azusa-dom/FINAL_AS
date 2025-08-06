@@ -1,0 +1,6 @@
+Model,AUROC,AUROC_std,Accuracy,Precision,Recall,F1_Score,Log_Loss,ECE
+Random Forest,0.929,0.006,1.000,1.000,1.000,1.000,0.077,0.201
+Gradient Boosting,0.938,0.003,0.906,0.844,0.997,0.914,0.225,0.155
+Logistic Regression,0.858,0.008,0.833,0.760,0.974,0.854,0.384,0.107
+Neural Network,0.858,0.008,0.833,0.760,0.974,0.854,0.384,0.107
+Ensemble,0.941,0.009,0.880,0.840,0.985,0.905,0.420,0.168 

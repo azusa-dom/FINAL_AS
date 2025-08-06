@@ -1,0 +1,2 @@
+total_subjects,as_subjects,healthy_subjects,total_slices,avg_slices_per_subject,cv_method,cv_folds,auroc,p_value,optimal_threshold
+8,6,2,39,4.9,Leave-Two-Out,12,0.83,0.017,0.62

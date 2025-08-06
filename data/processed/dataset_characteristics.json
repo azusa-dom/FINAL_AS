@@ -1,0 +1,26 @@
+{
+    "clinical_data": {
+        "total_samples": 4254,
+        "as_cases": 2127,
+        "controls": 2127,
+        "as_ratio": 0.5,
+        "control_ratio": 0.5,
+        "original_features": 14,
+        "engineered_features": 20,
+        "cv_folds": 5,
+        "training_samples_per_fold": 3403,
+        "validation_samples_per_fold": 851
+    },
+    "mri_data": {
+        "total_subjects": 8,
+        "as_subjects": 6,
+        "healthy_subjects": 2,
+        "total_slices": 39,
+        "avg_slices_per_subject": 4.9,
+        "cv_method": "Leave-Two-Out",
+        "cv_folds": 12,
+        "auroc": 0.83,
+        "p_value": 0.017,
+        "optimal_threshold": 0.62
+    }
+}

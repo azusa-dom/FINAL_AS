@@ -1,0 +1,23 @@
+{
+  "ensemble_auroc": 0.9414032600992203,
+  "ensemble_auroc_std": 0.008701207294618334,
+  "ensemble_auroc_ci_lower": 0.9237452991716696,
+  "ensemble_auroc_ci_upper": 0.9586793480954815,
+  "ensemble_ece": 0.16803452358153653,
+  "ensemble_ece_std": 0.008668319236935128,
+  "ensemble_ece_ci_lower": 0.15381347397223288,
+  "ensemble_ece_ci_upper": 0.18772412381287037,
+  "ensemble_logloss": 0.4201010689128038,
+  "ensemble_logloss_std": 0.007563536236236705,
+  "ensemble_logloss_ci_lower": 0.4054319607570513,
+  "ensemble_logloss_ci_upper": 0.434124643591541,
+  "clinical_auroc": 0.938,
+  "clinical_auroc_std": 0.003,
+  "mri_auroc": 0.8334166666666666,
+  "mri_auroc_std": 0.02112446580521162,
+  "fusion_method": "late-fusion (simple averaging)",
+  "weights": {
+    "clinical": 0.5,
+    "mri": 0.5
+  }
+}
