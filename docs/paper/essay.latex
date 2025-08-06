@@ -33,7 +33,7 @@
 \newunicodechar{⁻}{\textsuperscript{-}}
 
 % Set the path for image files
-\graphicspath{{../results/figures/}}
+\graphicspath{{vertopal_9877a777d34043fea0110a83eb29bb37/media/}}
 
 % Define a new centered column type for tabularx
 \newcolumntype{C}{>{\centering\arraybackslash}X}
