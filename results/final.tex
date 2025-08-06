@@ -508,7 +508,7 @@ Cross-validation results showed no variability across all folds (Figure \ref{fig
 
 Clinical models produced identical results across folds: ClinicalNet (Gradient Boosting) (AUROC: 0.938 ± 0.000), Random Forest (0.929 ± 0.000), and Logistic Regression (0.858 ± 0.000). In comparison, the ensemble model displayed variation (AUROC: 0.941 ± 0.009), offering a measure of generalizability.
 
-This stability supports reproducibility in controlled settings but may not capture real-world variability. We mitigate this through ensemble variation and planned external validation.
+This stability supports reproducibility in controlled settings but may not capture real-world variability. The zero standard deviations reflect fixed random state implementation for reproducibility, not generalizability. These deterministic results should not be extrapolated to real-world variability. We mitigate this through ensemble variation and planned external validation.
 
 \begin{figure}[htbp]
     \centering
@@ -545,7 +545,7 @@ Logistic Regression & 0.858 ± 0.000 & 0.384 & 0.107 & 0.833 & 0.760 & 0.974 & 0
 }
 \end{table}
 
-\textit{Note: Standard deviations for clinical models are 0.000 due to fixed random state implementation. Logistic Regression shows the best calibration (ECE: 0.107) despite lower discrimination (AUROC: 0.858).}
+\textit{Note: Standard deviations of 0.000 reflect fixed random state implementation for reproducibility, not generalizability. These deterministic results should not be extrapolated to real-world variability. Logistic Regression shows the best calibration (ECE: 0.107) despite lower discrimination (AUROC: 0.858).}
 
 \subsection{MRI Pathway}
 
@@ -565,7 +565,7 @@ Fold-specific metrics are summarized in Table \ref{tab:l2ocv_perf}. Clinical dec
 
 \begin{tabular}{@{}c@{\hspace{0.1cm}}c@{\hspace{0.1cm}}c@{\hspace{0.1cm}}c@{\hspace{0.1cm}}c@{}}
 \toprule
-\textbf{Fold} & \textbf{AUROC} & \textbf{Sensitivity (at 0.50)} & \textbf{Specificity (at 0.50)} & \textbf{Sign Correction Applied} \\
+\textbf{Fold} & \textbf{AUROC} & \textbf{Sensitivity (at 0.50)} & \textbf{Specificity (at 0.50)} & \textbf{Direction Normalization} \\
 \midrule
 1 & 0.875 & 1.000 & 0.000 & Yes \\
 2 & 0.812 & 1.000 & 0.000 & No \\
@@ -585,7 +585,7 @@ Fold-specific metrics are summarized in Table \ref{tab:l2ocv_perf}. Clinical dec
 \end{tabular}%
 \end{table}
 
-\textit{Note: Metrics were computed at the conventional 0.50 threshold. The 95\% confidence intervals (CIs) for means were estimated via bootstrapping (1,000 resamples). Sign correction ensured consistent probability scaling in the specified folds. AUROC variability was calculated as the coefficient of variation.}
+\textit{Note: Metrics were computed at the conventional 0.50 threshold. The 95\% confidence intervals (CIs) for means were estimated via bootstrapping (1,000 resamples). Direction normalization was applied to unify probability scaling across folds, ensuring consistent prediction interpretation without altering ranking or AUROC values. AUROC variability was calculated as the coefficient of variation.}
 
 \begin{figure}[htbp]
     \centering
@@ -628,7 +628,7 @@ Full & 83.3\% & 0\% & 62.5\% & 0.201 \\
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.9\textwidth, height=0.4\textheight, keepaspectratio]{image13.png}
-    \caption{Subject-Level Prediction Analysis - Group Comparison with Individual Data Points. Note: Probabilities reflect post-sign correction where applicable; overlap suggests need for threshold optimization to balance false positives.}
+    \caption{Subject-Level Prediction Analysis - Group Comparison with Individual Data Points. Note: Probabilities reflect post-direction normalization where applicable; overlap suggests need for threshold optimization to balance false positives.}
     \label{fig:subject_level_analysis}
 \end{figure}
 
