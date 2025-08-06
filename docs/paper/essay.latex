@@ -700,7 +700,7 @@ Logistic Regression & 0.858 ± 0.008 & 0.384 & 0.107 & 4,254 & 5-fold CV \\ \bot
     \label{fig:ensemble_utility}
 \end{figure}
 
-The ensemble showed better calibration (mean log loss = 0.420 ± 0.008, ECE = 0.168 ± 0.009), proving the effectiveness of the preprocessing pipeline, especially feature engineering.
+The ensemble showed modest AUROC improvement (ΔAUROC = 0.003) but slightly worse calibration (mean log loss = 0.420 ± 0.008 vs 0.225, ECE = 0.168 ± 0.009 vs 0.155), indicating a trade-off between discrimination and calibration performance.
 
 \subsubsection{Clinical Utility}
 On the independent hold-out clinical set (n=10,383; 1,276 AS, 9,107 HC), the ensemble achieved 99.5\% sensitivity (95\% CI 99.0--100.0) and 86.8\% specificity (95\% CI 86.2--87.4) at an optimal threshold of 0.62 (Youden's index). Precision was 82.9\%. Robust generalization was evidenced by consistent AUROC across subgroups (age <50 vs. $\geq$50 years, gender, disease severity; ΔAUROC<0.01). This calibration enhances clinical decision support by providing reliable probability estimates, reducing false negatives in AS diagnosis.
@@ -786,7 +786,7 @@ Baseline (Raw Data) & 0.000 & 0.000 & 0.000 & 0.000 & 0.000 & Reference \\
 \addlinespace
 + Balanced Sampling & $-0.125$ & $+0.043$ & $0.000$ & $+0.200$ & $-0.043$ & Higher sensitivity, more false positives \\
 \addlinespace
-+ Full Pipeline & $-0.125$ & $+0.033$ & $0.000$ & $+0.100$ & $-0.033$ & Modest improvement, better calibration \\
++ Full Pipeline & $-0.125$ & $+0.033$ & $0.000$ & $+0.100$ & $-0.033$ & Modest improvement, calibration trade-off \\
 \bottomrule
 \end{tabular}%
 }
