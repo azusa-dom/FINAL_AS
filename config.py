@@ -42,7 +42,7 @@ MODEL_CONFIG = {
         "pretrained": True,
         "num_classes": 2,
         "random_state": 42,
-        "cv_folds": 8,  # Leave-Two-Out
+        "cv_folds": 12,  # Leave-Two-Out CV with 8 subjects -> 12 folds (1 AS + 1 HC held out)
         "feature_dim": 512
     },
     

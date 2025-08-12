@@ -1,0 +1,20 @@
+\begin{table}[htbp]
+\centering
+\caption{Dataset Characteristics (from processed results)}
+\label{tab:dataset_characteristics_processed}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Characteristic} & \textbf{Clinical Data} & \textbf{MRI Data} \\ \midrule
+Total Samples/Subjects & 4254 & 8 \\
+AS Cases & 2127 & 6 \\
+Controls/Healthy Subjects & 2127 & 2 \\
+AS Ratio (\%) & 50.0 & 75.0 \\
+Original Features & 14 & 512 (ResNet-18 features) \\
+Engineered Features & 20 & 512 (ResNet-18 features) \\
+Cross-Validation Method & Stratified 5-Fold CV & Leave-Two-Out CV \\
+Training Samples per Fold & 3403 & 6 subjects \\
+Validation Samples per Fold & 851 & 2 subjects \\
+AUROC & 0.938 $\pm$ 0.003 (Gradient Boosting) & 0.83 \\
+\bottomrule
+\end{tabular}
+\end{table}

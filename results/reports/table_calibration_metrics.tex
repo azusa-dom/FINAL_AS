@@ -1,0 +1,13 @@
+\begin{table}[htbp]
+\centering
+\caption{Calibration Metrics Across Models (from processed results)}
+\label{tab:calibration_metrics_processed}
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+\textbf{Model} & \textbf{AUROC (Mean $\pm$ SD)} & \textbf{Log Loss} & \textbf{ECE} & \textbf{Accuracy} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-Score} \\ \midrule
+Random Forest & 0.929 $\pm$ 0.006 & 0.077 & 0.201 & 1.000 & 1.000 & 1.000 & 1.000 \\
+Gradient Boosting & 0.938 $\pm$ 0.003 & 0.225 & 0.155 & 0.906 & 0.844 & 0.997 & 0.914 \\
+Logistic Regression & 0.858 $\pm$ 0.008 & 0.384 & 0.107 & 0.833 & 0.760 & 0.974 & 0.854 \\
+\bottomrule
+\end{tabular}
+\end{table}

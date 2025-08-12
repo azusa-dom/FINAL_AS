@@ -12,7 +12,7 @@
 \usepackage{amsmath,amssymb}
 \usepackage{lmodern}
 \usepackage{textcomp}
-% \usepackage[utf8]{inputenc} % duplicate; kept below within \ifPDFTeX
+\usepackage[utf8]{inputenc}
 \usepackage{textgreek}
 \usepackage{iftex}
 \usepackage[pdftex]{graphicx}
@@ -22,18 +22,18 @@
 \usepackage{xcolor}
 \usepackage[normalem]{ulem}
 \usepackage{hyperref}
-% \usepackage{fontsize} % not required; use standard size commands
+\usepackage{fontsize}
 \usepackage{titlesec}
 \usepackage{tabularx}
 \usepackage{float}         % To control figure placement with [H]
 \usepackage{subcaption}    % For subfigures
-% \usepackage{booktabs}  % duplicate; already loaded with longtable,booktabs,array
+\usepackage{booktabs}  % 用于 \toprule, \midrule, \bottomrule
 
 \usepackage{parskip}       % Removes paragraph indentation and adds space between paragraphs
 \newunicodechar{⁻}{\textsuperscript{-}}
 
-% Set the path for image files (prefer repository figures, fallback to legacy path if available)
-\graphicspath{{results/figures/}{vertopal_9877a777d34043fea0110a83eb29bb37/media/}}
+% Set the path for image files
+\graphicspath{{vertopal_9877a777d34043fea0110a83eb29bb37/media/}}
 
 % Define a new centered column type for tabularx
 \newcolumntype{C}{>{\centering\arraybackslash}X}
@@ -157,7 +157,7 @@
 % Submission statement (corrected for research project)
 
 \vspace{0.5cm}
-
+{\large of the requirements for the}\\
 \vspace{0.5cm}
 {\Large \textbf{Master's Degree in Global Business School for Health}}
 
@@ -199,7 +199,7 @@
 \clearpage
 
 % List of Abbreviations
-\section*{List of Abbreviations}
+\chapter*{List of Abbreviations}
 
 \textbf{General Terms}
 
@@ -378,16 +378,16 @@ OMERACT & Outcome Measures in Rheumatology \\
 \section{Introduction and Background}
 
 \subsection{Diagnostic Delay and Decision Support}
-Ankylosing spondylitis (AS), a chronic inflammatory arthritis that affects the axial skeleton primarily, has a global prevalence of 0.1\%–1.4\% with peak onset in adults aged 20–30 years (Braun \& Sieper, 2007). The timely diagnosis is profoundly challenging, with a mean diagnostic delay of 6.7 years (95\% CI: 6.2 to 7.2) in axial spondyloarthritis and women facing up to 1.9 years longer delays (Zhao et al., 2021). This delay correlates with functional deterioration, as seen in longitudinal data from 163 patients with AS where prolonged latency increases the Bath Ankylosing Spondylitis Functional Index (BASFI) scores (r = 0.23, p = 0.003) and affects physical capacity (Fallahi \& Jamshidi, 2016). It also drives the progression of structural damage, with strong associations with radiographic severity indices such as the Bath Ankylosing Spondylitis Radiology Index (BASRI; R = 0.393, p = 0.01) and the modified Stoke Ankylosing Spondylitis Spinal Score (mSASSS; R = 0.318, p = 0.04) (Nageeb et al., 2022). These delays underscore the urgent need for AI-driven diagnostic tools to improve early detection and intervention.Pathologically, AS progresses from early sacroiliac joint erosion to advanced spinal ankylosis (the stiffening or fusion of a joint) through irreversible syndesmophyte formation (bony growths within ligaments) (Koo et al., 2022; Sun et al., 2023). These clinical and structural impacts, rooted in genetic heterogeneity, systemic misdiagnosis, and resource fragmentation, highlight the need for deeper analysis (see Section 1.3) and robust AI-driven decision support -- although data barriers pose significant hurdles (Section 1.2).
+Ankylosing spondylitis (AS), a chronic inflammatory arthritis primarily affecting the axial skeleton, has a global prevalence of 0.1\%–1.4\% with peak onset in adults aged 20–30 years (Braun \& Sieper, 2007). Timely diagnosis is profoundly challenging, with a mean diagnostic delay of 6.7 years (95\% CI: 6.2–7.2) in axial spondyloarthritis, and female patients facing up to 1.9-year longer delays (Zhao et al., 2021). This delay correlates with functional deterioration, as seen in longitudinal data from 163 AS patients where prolonged latency elevates Bath Ankylosing Spondylitis Functional Index (BASFI) scores (r = 0.23, p = 0.003) and impairs physical capacity (Fallahi \& Jamshidi, 2016). It also drives structural damage progression, with strong associations to radiographic severity indices like Bath Ankylosing Spondylitis Radiology Index (BASRI; R = 0.393, p = 0.01) and modified Stoke Ankylosing Spondylitis Spinal Score (mSASSS; R = 0.318, p = 0.04) (Nageeb et al., 2022). These delays underscore the urgent need for AI-driven diagnostic tools to enhance early detection and intervention.Pathologically, AS progresses from early sacroiliac joint erosion to advanced spinal ankylosis (the stiffening or fusion of a joint) via irreversible syndesmophyte formation (bony growths within ligaments) (Koo et al., 2022; Sun et al., 2023). These clinical and structural impacts, rooted in genetic heterogeneity, systemic misdiagnosis, and resource fragmentation, highlight the need for deeper analysis (see Section 1.3) and robust AI-driven decision support---though data barriers pose significant hurdles (Section 1.2).
 
 \subsection{The Non-Paired Data Barrier in Multimodal AI Development}
-The clinical translation of AI-based diagnostic tools for AS is constrained by the Multimodal Data Asynchrony Problem (MDAP), arising from fragmented healthcare infrastructures where modalities such as MRI, clinical notes, and disease activity scores (e.g., Bath Ankylosing Spondylitis Disease Activity Index (BASDAI)/Ankylosing Spondylitis Disease Activity Score (AS-DAS)) lack temporal alignment in Electronic Health Records (EHRs) (Hepburn et al., 2023). Only 12. 3\% (95\% CI 8.9----15. 7\%) of patients with AS in tertiary centers have contemporaneous multimodal data sets (Kennedy et al., 2023), below the pairing threshold of $>$ 78. Below this threshold, the generalizability of the model is compromised, limiting the reliability of the diagnostic predictions.When the model's threshold falls below a certain limit, its ability to generalize is compromised, thereby affecting the dependability of diagnostic predictions. A temporal misalignment of six weeks results in a 22.1\% drop in accuracy ($\Delta$AUROC = $-0.221$; $p < 0.001$) because the rapid progression of AS renders delayed data integration unreliable (Liu et al., 2023). As a result, the majority of AI models depend on unimodal data, with 87\% failing in clinical trials due to insufficient generalizability (Zhan et al., 2022). This highlights the importance of developing innovative cross-modal fusion techniques, as discussed in Section 1.3.4 and subsequent sections.
+The clinical translation of AI-based diagnostic tools for AS is constrained by the Multimodal Data Asynchrony Problem (MDAP), arising from fragmented healthcare infrastructures where modalities like MRI, clinical notes, and disease activity scores (e.g., Bath Ankylosing Spondylitis Disease Activity Index (BASDAI)/Ankylosing Spondylitis Disease Activity Score (AS-DAS)) lack temporal alignment in Electronic Health Records (EHRs) (Hepburn et al., 2023). Only 12.3\% (95\% CI 8.9--15.7\%) of AS patients in tertiary centers have contemporaneous multimodal datasets (Kennedy et al., 2023), below the $>$ 78.5\% pairing threshold for robust AI validation (AUC $\geq$ 0.90). Below this threshold, model generalizability is compromised, limiting the reliability of diagnostic predictions. Temporal misalignment over 6 weeks reduces accuracy by 22.1\% ($\Delta$AUROC = $-0.221$; $p < 0.001$), as AS's rapid progression makes delayed integration unreliable (Liu et al., 2023). Consequently, most AI models rely on unimodal data, with 87\% failing clinical trials due to poor generalizability (Zhan et al., 2022). This underscores the need for novel cross-modal fusion methods, as explored in Section 1.3.4 and beyond.
 
 
 \subsection{Literature Review}
 
 \subsubsection{Clinical Burden and Diagnostic Delay in AS}
-Building on diagnostic challenges (Section 1.1) and data barriers (Section 1.2), this review examines epidemiological and clinical determinants to identify intervention targets. Epidemiological heterogeneity is central: The prevalence of AS correlates with the frequencies of the HLA--B27 alleles, ranging from $90\%$ -- $95\%$ in East Asia to $45\%$ -- $70\%$ in Europe, driving regional disparities in detection (Lee et al., 2023; Reveille, 2022; Rudwaleit et al., 2009). Clinical barriers include symptom ambiguity ($70\%$ of early inflammatory back pain misclassified as mechanical; Kennedy et al., 2023), biomarker limitations (CRP normal in $30\%$ -- $50\%$ of early-stage patients; Sieper et al., 2019), and resource limitations (e.g. $<25\%$ MRI referral capacity in developing regions and rheumatologist shortages; Kennedy et al., 2023; Redeker et al., 2019). Pathophysiologically, AS features osteitis-osteoproliferation interplay (a process involving bone inflammation and abnormal bone formation), with $26\%$ of patients showing MRI-detectable subchondral erosion (damage to the layer of bone just beneath the cartilage) before radiographic changes, fueled by Interleukin-17A and Bone Morphogenetic Protein-2 (IL-17A/BMP-2) synergy risking irreversible ankylosis (Rudwaleit et al., 2009; Sørensen \& Hetland, 2015; Tas et al., 2023; Venerito et al., 2023). These factors, compounded by data asynchrony, emphasize the urgency of AI-enhanced tools such as multimodal magnetic resonance analysis to enable early intervention (Lee et al., 2023; Li et al., 2023; Sørensen \& Hetland, 2015; Tas et al., 2023).
+Building on the diagnostic challenges (Section 1.1) and data barriers (Section 1.2), this review examines epidemiological and clinical determinants to identify intervention targets. Epidemiological heterogeneity is central: AS prevalence correlates with HLA-B27 allele frequencies, ranging from $90\%$--$95\%$ in East Asia to $45\%$--$70\%$ in Europe, driving regional disparities in detection (Lee et al., 2023; Reveille, 2022; Rudwaleit et al., 2009). Clinical barriers include symptom ambiguity ($70\%$ of early inflammatory back pain misclassified as mechanical; Kennedy et al., 2023), biomarker limitations (CRP normal in $30\%$--$50\%$ of early-stage patients; Sieper et al., 2019), and resource constraints (e.g., $<25\%$ MRI referral capacity in developing regions and rheumatologist shortages; Kennedy et al., 2023; Redeker et al., 2019). Pathophysiologically, AS features osteitis-osteoproliferation interplay (a process involving bone inflammation and abnormal bone formation), with $26\%$ of patients showing MRI-detectable subchondral erosion (damage to the layer of bone just beneath the cartilage) before radiographic changes, fueled by Interleukin-17A and Bone Morphogenetic Protein-2 (IL-17A/BMP-2) synergy risking irreversible ankylosis (Rudwaleit et al., 2009; Sørensen \& Hetland, 2015; Tas et al., 2023; Venerito et al., 2023). These factors, compounded by data asynchrony, emphasize the urgency for AI-enhanced tools like multimodal MRI analysis to enable early intervention (Lee et al., 2023; Li et al., 2023; Sørensen \& Hetland, 2015; Tas et al., 2023).
 
 \subsubsection{Structural Limitations of Current Diagnostic Pathways}
 Current AS pathways are limited in classification, serology, and imaging, exacerbating delays and highlighting gaps for AI integration (detailed in Table \ref{tab:structural_limitations}). These limitations in sensitivity, predictive value, access, and reliability underscore the need for innovative frameworks to bridge them.
@@ -399,17 +399,17 @@ Current AS pathways are limited in classification, serology, and imaging, exacer
 \label{tab:structural_limitations}
 \begin{tabularx}{\textwidth}{p{2.5cm} p{2.5cm} p{3cm} X}
 \toprule
-\textbf{Domain} & \textbf{Method} & \textbf{Key Limitation} & \textbf{Supporting Evidence \& Data} \\
+\textbf{Domain} & \textbf{Method/Tool} & \textbf{Key Limitation} & \textbf{Supporting Evidence \& Data} \\
 \midrule
 Classification & Assessment of SpondyloArthritis international Society (ASAS) Criteria & Sensitivity decline in subgroups & Drops to 75.4\% in HLA-B27-negative patients (Sieper et al., 2009), compared to a baseline of 82.9\% (Rudwaleit et al., 2009). \\
 \addlinespace
-Serology & HLA-B27 & High false-positive rate & Positive Predictive Value (PPV) is < 15\% in some healthy populations due to high background prevalence (Reveille et al., 2012). \\
+Serology & HLA-B27 & High false-positive rate & Positive Predictive Value (PPV) is <15\% in some healthy populations due to high background prevalence (Reveille et al., 2012). \\
 \addlinespace
-& C-reactive protein (CRP) & Insufficient sensitivity & Persistently normal in 30 -- 50\% of patients with early-stage AS, making it an unreliable primary marker (Kiltz et al., 2018). \\
+& C-reactive protein (CRP) & Insufficient sensitivity & Persistently normal in 30-50\% of patients with early-stage AS, making it an unreliable primary marker (Kiltz et al., 2018). \\
 \addlinespace
 Imaging & Magnetic Resonance Imaging (MRI) & Access and cost barriers & 134-fold disparity in availability (WHO, 2022); costs can exceed USD 500 with $\leq$30\% diagnostic yield (Hepburn et al., 2023). \\
 \addlinespace
-& & Interpretation variability & Inter-reader reliability for sacroiliitis assessment is only fair-to-moderate (κ = 0.30 -- 0.60) (Hepburn et al., 2023). \\
+& & Interpretation variability & Inter-reader reliability for sacroiliitis assessment is only fair-to-moderate (κ = 0.30-0.60) (Hepburn et al., 2023). \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -417,7 +417,7 @@ Imaging & Magnetic Resonance Imaging (MRI) & Access and cost barriers & 134-fold
 
 
 \subsubsection{Artificial Intelligence in AS Diagnosis}
-The application of artificial intelligence to the diagnosis of AS has evolved rapidly, driven by the increasing availability of digitized health records and advances in machine learning methodologies. Current approaches fall into two main categories: imaging-based and clinical record-based systems, each with distinct advantages and limitations (see Table \ref{tab:ai_applications}).
+The application of artificial intelligence to the diagnosis of AS has evolved rapidly, driven by the increasing availability of digitized health records and advances in machine learning methodologies. Current approaches fall into two main categories: imaging--based and clinical record-based systems, each with distinct advantages and limitations (see Table \ref{tab:ai_applications}).
 
 \begin{table}[H]
 \centering
@@ -439,18 +439,18 @@ Clinical Record-Based Diagnostics & Structured EHR data (N=600 to >50,000) (Li e
 
 
 \paragraph{Imaging-First Diagnostic Approaches}
-Contemporary imaging AI leverages deep learning architectures to extract diagnostic features from MRI data. Hybrid 3D models combining ResNet and UNet architectures have achieved single-center AUROCs of 0.75 -- 0.93 for sacroiliitis detection due to domain shift across scanners(Gou et al., 2021; Queipo-de-Llano et al., 2025). Innovations including attention-gated networks (Zheng et al., 2023) and self-supervised pre-training (Bressem et al., 2022) have enhanced feature extraction capabilities. In practice, this could aid radiologists in identifying subtle inflammation, reducing misdiagnosis rates in early AS cases.
+Contemporary imaging AI leverages deep learning architectures to extract diagnostic features from MRI data. Hybrid 3D models combining ResNet and UNet architectures have achieved single-center AUROCs of 0.75--0.93 for sacroiliitis detection due to domain shift across scanners(Gou et al., 2021; Queipo-de-Llano et al., 2025). Innovations including attention-gated networks (Zheng et al., 2023) and self-supervised pre-training (Bressem et al., 2022) have enhanced feature extraction capabilities. In practice, this could aid radiologists in identifying subtle inflammation, reducing misdiagnosis rates in early AS cases.
 
 However, external validation consistently reveals performance degradation. Multi-site studies document AUROC drops of 5-15 points when models encounter domain shift from different scanners or acquisition protocols (Rockenschaub et al., 2025). This generalization gap reflects the fundamental challenge of training on homogeneous datasets while deploying across heterogeneous clinical environments.
 
-Explainability presents additional regulatory hurdles. Current visual saliency techniques, particularly Grad-CAM implementations, provide qualitative localization but lack the quantitative auditing capabilities required by emerging regulations. The EU AI Act's Article 13 mandates quantitative evidence of model trustworthiness for high-risk medical applications, creating an estimated 14-19 month delays for regulatory approval of musculoskeletal imaging AI (Dagnaw et al., 2025; Kaplan, 2024).
+Explainability presents additional regulatory hurdles. Current visual saliency techniques, particularly Grad-CAM implementations, provide qualitative localization but lack the quantitative auditing capabilities required by emerging regulations. The EU AI Act's Article 13 mandates quantitative evidence of model trustworthiness for high-risk medical applications, creating estimated 14-19 month delays for regulatory approval of musculoskeletal imaging AI (Dagnaw et al., 2025; Kaplan, 2024).
 
 \paragraph{Clinical Record-Based Diagnostic Systems}
 Electronic health record (EHR) models demonstrate superior scalability, leveraging structured data from thousands to tens of thousands of patients. Gradient boosting frameworks (XGBoost, LightGBM) remain the standard for tabular data, achieving internal validation AUROCs exceeding 0.90 (Li et al., 2023; Hu et al., 2023). Recent transformer architectures show promise for capturing temporal patterns in longitudinal data (Ryu et al., 2021).
 
 Feature importance analyses consistently identify HLA-B27 status, age at symptom onset, and CRP trajectory as top predictors. However, the relative weights of these features vary significantly across healthcare systems, indicating latent cohort biases that compromise generalizability.
 
-Critical methodological gaps undermine clinical translation. A systematic review by Rockenschaub et al., (2025) found only 14.7\% of ML studies report external validation, with fewer than 10\% providing essential calibration metrics. This validation deficit is particularly concerning given documented mean AUROC drops of 3.7\% points during external testing.
+Critical methodological gaps undermine clinical translation. Systematic review by Rockenschaub et al., (2025) found only 14.7\% of ML studies report external validation, with fewer than 10\% providing essential calibration metrics. This validation deficit is particularly concerning given documented mean AUROC drops of 3.7 percentage points during external testing.
 
 \paragraph{Persistent Translational Barriers}
 Three persistent barriers affect both modalities. First, probabilistic calibration remains systematically overlooked despite its crucial role in clinical decision-making. In realistic AS prevalence settings (0.09\%), even well-performing models achieve positive predictive values of only 1.44\% in men and 0.51\% in women, highlighting severe false-positive risks (Kennedy, 2023).
@@ -470,17 +470,17 @@ When cross-site pairing is infeasible, federated learning facilitates collaborat
 
 External validation requirements highlight these challenges: multimodal systems must prove cross-site validity and calibration, yet domain shift in axSpA MRI is well-documented, with performance degrading at new sites. Systematic evidence from structured-data models shows external validation is uncommon, with mean area under the receiver operating characteristic curve dropping by approximately 0.04 points, and nearly half of studies experiencing decrements of 0.05 or greater on external data. These findings emphasize the need for multicenter external validation and routine calibration monitoring using metrics such as Brier scores and expected calibration error before clinical deployment (Rockenschaub et al., 2025).
 \subsection{Research Gaps and Justification}
-The literature reveals four unmet needs. \textbf{(G1)} In low prevalence AS (0.09-1.4\%), AUROC is insufficient; calibrated probabilities are required for PPV-aware decisions. \textbf{(G2)} Non-paired EHR-MRI streams (only 12.3\% have contemporaneous data) undermine early fusion assumptions; methods must tolerate temporal misalignment. \textbf{(G3)} Small sample imaging (typically <100 subjects) demands statistical safeguards beyond conventional cross-validation (CV). \textbf{(G4)} Reproducibility is limited: calibration, quantitative explainability, and deployment-grade artifacts are under-reported (<15\% report external validation).
+The literature reveals four unmet needs. (G1) In low prevalence AS (0.09-1.4\%), AUROC is insufficient; calibrated probabilities are required for PPV-aware decisions. (G2) Non-paired EHR-MRI streams (only 12.3\% have contemporaneous data) undermine early fusion assumptions; methods must tolerate temporal misalignment. (G3) Small sample imaging (typically <100 subjects) demands statistical safeguards beyond conventional cross-validation (CV). (G4) Reproducibility is limited: calibration, quantitative explainability, and deployment-grade artifacts are under-reported (<15\% report external validation).
 
-\textbf{Synthesis and Response:} These gaps motivate our dual-pathway framework, including decoupled training with calibrated interfaces, calibration-first evaluation (e.g., ECE, Brier scores), robust small-n validation (e.g., leave-two-out, permutation testing), and containerized pipelines. Sections 1.5-1.6 detail the implementation.
+Synthesis and Response: These gaps motivate our dual-pathway framework, including decoupled training with calibrated interfaces, calibration-first evaluation (e.g., ECE, Brier scores), robust small-n validation (e.g., leave-two-out, permutation testing), and containerized pipelines. Sections 1.5-1.6 detail the implementation.
 
 \subsection{The DDI-AS Framework and Contributions}
-As illustrated in Figure 1, our DDI-AS framework integrates structured EHR and MRI imaging data through parallel pipelines, fuses predictions via late fusion, and ensures interpretability at multiple stages using SHapley Additive Explanations (SHAP, a method to explain individual predictions). The framework employs containerized pipelines using tools like Docker for reproducibility, Fast Healthcare Interoperability Resources (FHIR) for data standards, and adheres to TRIPOD-AI reporting standards.
+As illustrated in Figure \ref{fig:ddi-as-arch}, our DDI-AS framework integrates structured EHR and MRI imaging data through parallel pipelines, fuses predictions via late fusion, and ensures interpretability at multiple stages using SHapley Additive exPlanations (SHAP, a method to explain individual predictions). The framework employs containerized pipelines using tools like Docker for reproducibility, Fast Healthcare Interoperability Resources (FHIR) for data standards, and adheres to TRIPOD-AI reporting standards.
 \subsubsection*{Primary Contributions}
 \begin{itemize}
     \item Novel dual-pathway architecture for non-paired multimodal data integration
-    \item Trustworthiness benchmark with strong discrimination and calibration, enhanced by SHAP interpretability (e.g., HLA-B27\_Positive: 0.231 -- 0.245)
-    \item Validated method for extreme data scarcity with statistical significance (p = 0.017, n = 8)
+    \item Trustworthiness benchmark with strong discrimination and calibration, enhanced by SHAP interpretability (e.g., HLA-B27\_Positive: 0.231-0.245)
+    \item Validated method for extreme data scarcity with statistical significance (p=0.017, n=8)
     \item Reproducible clinical deployment artifact through Docker containerization, FHIR endpoints, DVC version control, and TRIPOD-AI compliance
 \end{itemize}
 \begin{figure}
@@ -732,12 +732,12 @@ ECE & 0.201 & 0.155 & 0.107 & 0.107 & 0.168 ± 0.009 \\
 
 Cross-validation results showed no variability across all folds (Figure \ref{fig:cv_stability}). This arises from the deterministic 5-fold approach, with a fixed random\_state=42 and balanced dataset, promoting reproducibility.
 
-Clinical models produced identical-looking fold results under the fixed split; processed cross-validation statistics are: ClinicalNet (Gradient Boosting) AUROC 0.938 ± 0.003, Random Forest 0.929 ± 0.006, and Logistic Regression 0.858 ± 0.008. In comparison, the ensemble model displayed variation (AUROC: 0.941 ± 0.009), offering a measure of generalizability.
+Clinical models produced identical results across folds: ClinicalNet (Gradient Boosting) (AUROC: 0.938 ± 0.000), Random Forest (0.929 ± 0.000), and Logistic Regression (0.858 ± 0.000). In comparison, the ensemble model displayed variation (AUROC: 0.941 ± 0.009), offering a measure of generalizability.
 
 This stability supports reproducibility in controlled settings but may not capture real-world variability. The zero standard deviations reflect fixed random state implementation for reproducibility, not generalizability. These deterministic results should not be extrapolated to real-world variability. We mitigate this through ensemble variation and planned external validation.
 
 \subsubsection{Model Calibration}
-Figure \ref{fig:calibration_utility} evaluates calibration and utility for Random Forest (RF), ClinicalNet (Gradient Boosting) (GB), and Logistic Regression (LR) models. Panel A shows calibration curves, with GB best aligned (ECE = 0.155), LR next (ECE = 0.107), and RF poorest (ECE = 0.201). Panel B compares ECE and log loss via bars; AUROC SDs reported in tables reflect processed cross-validation statistics (RF 0.006, GB 0.003, LR 0.008), while the visual bars use a deterministic fold split (apparent SD ≈ 0.000) due to fixed random\_state = 42. Panel C box plots AUROC under 5-fold cross-validation (CV), GB highest. Panel D utility curves peak for GB at 0.4 -- 0.6 thresholds. Overall, GB excels (ECE = 0.155, AUROC = 0.938).
+Figure \ref{fig:calibration_utility} evaluates calibration and utility for Random Forest (RF), ClinicalNet (Gradient Boosting) (GB), and Logistic Regression (LR) models. Panel A shows calibration curves, with GB best aligned (ECE=0.155), LR next (ECE=0.107), and RF poorest (ECE=0.201). Panel B compares ECE and log loss via bars: GB optimal (AUROC=0.938 ± 0.000), RF high AUROC (0.929 ± 0.000) but poor calibration, LR moderate (AUROC=0.858 ± 0.000); zero SD from fixed random\_state=42. Panel C box plots AUROC under 5-fold cross-validation (CV), GB highest. Panel D utility curves peak for GB at 0.4--0.6 thresholds. Overall, GB excels (ECE=0.155, AUROC=0.938) with deterministic zero SD.
 
 \begin{figure}[htbp]
     \centering
@@ -756,15 +756,15 @@ Figure \ref{fig:calibration_utility} evaluates calibration and utility for Rando
 \toprule
 \textbf{Model} & \textbf{AUROC (Mean ± SD)} & \textbf{Log Loss} & \textbf{ECE} & \textbf{Accuracy} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-Score} \\
 \midrule
-Random Forest & 0.929 ± 0.006 & 0.077 & 0.201 & 1.000 & 1.000 & 1.000 & 1.000 \\
-ClinicalNet (Gradient Boosting) & 0.938 ± 0.003 & 0.225 & 0.155 & 0.906 & 0.844 & 0.997 & 0.914 \\
-Logistic Regression & 0.858 ± 0.008 & 0.384 & 0.107 & 0.833 & 0.760 & 0.974 & 0.854 \\
+Random Forest & 0.929 ± 0.000 & 0.077 & 0.201 & 1.000 & 1.000 & 1.000 & 1.000 \\
+ClinicalNet (Gradient Boosting) & 0.938 ± 0.000 & 0.225 & 0.155 & 0.906 & 0.844 & 0.997 & 0.914 \\
+Logistic Regression & 0.858 ± 0.000 & 0.384 & 0.107 & 0.833 & 0.760 & 0.974 & 0.854 \\
 \bottomrule
 \end{tabular}%
 }
 \end{table}
 
-\textit{\textbf{Note}: AUROC standard deviations are reported from cross-validated fold statistics (processed results). Some internal figures may show zero SD due to deterministic folds with a fixed random state; we standardize the tabular reporting here to reflect the processed cross-validation outputs. Logistic Regression shows the best calibration (ECE: 0.107) despite lower discrimination (AUROC: 0.858).}
+\textit{\textbf{Note}: Standard deviations of 0.000 reflect fixed random state implementation for reproducibility, not generalizability. These deterministic results should not be extrapolated to real-world variability. Logistic Regression shows the best calibration (ECE: 0.107) despite lower discrimination (AUROC: 0.858).}
 
 \subsection{MRI Pathway}
 
@@ -772,7 +772,7 @@ Logistic Regression & 0.858 ± 0.008 & 0.384 & 0.107 & 0.833 & 0.760 & 0.974 & 0
 The imaging pathway was evaluated using a small cohort sourced from a public repository, comprising eight subjects: six with confirmed ankylosing spondylitis (AS) and two healthy controls (HC). Each subject contributed a mean ± standard deviation (SD) of 4.9 ± 1.2 slices with paired T1-weighted and STIR sequences. Given the limited sample size, model evaluation employed a 12-fold leave-two-out cross-validation (L2O-CV) protocol, wherein each fold withheld one AS subject and one HC subject for validation while training on the remaining data.
 
 \subsubsection{Cross-Validation Performance}
-In the Leave-Two-Out Cross-Validation (L2O-CV), the model achieved a mean subject-level area under the receiver operating characteristic curve (AUROC) of 0.833 ± 0.021 (95\% CI: 0.822 -- 0.844; range: 0.789 -- 0.875) across 12 folds. At the conventional probability threshold of 0.50, the model exhibited a mean sensitivity of 0.986 ± 0.048 (95\% CI: 0.961 -- 1.000) and a mean specificity of 0.000 ± 0.000.
+In the Leave-Two-Out Cross-Validation (L2O-CV), the model achieved a mean subject-level area under the receiver operating characteristic curve (AUROC) of 0.833 ± 0.021 (95\% CI: 0.822--0.844; range: 0.789--0.875) across 12 folds. At the conventional probability threshold of 0.50, the model exhibited a mean sensitivity of 0.986 ± 0.048 (95\% CI: 0.961--1.000) and a mean specificity of 0.000 ± 0.000.
 
 Fold-specific metrics are summarized in Table \ref{tab:l2ocv_perf}. Clinical decision curve analysis and cost-effectiveness evaluation are presented in Appendix E (Clinical Decision Curve Analysis Results).
 
@@ -851,13 +851,13 @@ Full & 83.3\% & 0\% & 62.5\% & 0.201 \\
     \label{fig:subject_level_analysis}
 \end{figure}
 
-In Leave-Two-Out Cross-Validation (L2O-CV), subject-level predicted probabilities showed overlap between classes. At the conventional 0.50 threshold, all six AS cases were correctly classified (probabilities: 0.584 -- 0.638, all above threshold), but both healthy controls were misclassified as AS (subjA: 0.619; subjB: 0.659, both above threshold), resulting in 0\% specificity. Mean probabilities were 0.610 ± 0.027 for AS and 0.633 ± 0.016 for HC (p=0.017, permutation test), indicating limited separation. The 0.50 threshold is suboptimal for clinical deployment in this small-sample scenario. Threshold optimization using Youden's index (maximizing sensitivity + specificity - 1) or finding the point on the ROC curve closest to (0,1) suggests an optimal threshold of approximately 0.62, which would improve classification by correctly identifying most subjects while balancing false positives and false negatives, as visualized in Figure \ref{fig:subject_level_analysis}.
+In Leave-Two-Out Cross-Validation (L2O-CV), subject-level predicted probabilities showed overlap between classes. At the conventional 0.50 threshold, all six AS cases were correctly classified (probabilities: 0.584--0.638, all above threshold), but both healthy controls were misclassified as AS (subjA: 0.619; subjB: 0.659, both above threshold), resulting in 0\% specificity. Mean probabilities were 0.610 ± 0.027 for AS and 0.633 ± 0.016 for HC (p=0.017, permutation test), indicating limited separation. The 0.50 threshold is suboptimal for clinical deployment in this small-sample scenario. Threshold optimization using Youden's index (maximizing sensitivity + specificity - 1) or finding the point on the ROC curve closest to (0,1) suggests an optimal threshold of approximately 0.62, which would improve classification by correctly identifying most subjects while balancing false positives and false negatives, as visualized in Figure \ref{fig:subject_level_analysis}.
 
 
 
 
 \subsubsection{Statistical Validation}
-Permutation testing (1,000 iterations) confirmed the model's discriminative ability (p = 0.017; null AUROC: 0.48 -- 0.52). The 0\% specificity at the 0.50 threshold is attributed to threshold selection rather than model failure, as evidenced by the significant AUROC. This demonstrates the "probability-skew paradox" in small-sample scenarios, where the conventional 0.50 threshold is suboptimal for clinical use. Threshold optimization using Youden's index or ROC curve analysis suggests an optimal threshold of approximately 0.62, which would improve specificity while maintaining high sensitivity. Bootstrap resampling (1,000 replicates) provided a 95\% CI for subject-level AUROC of 0.712 -- 0.948, excluding 0.50.
+Permutation testing (1,000 iterations) confirmed the model's discriminative ability (p = 0.017; null AUROC: 0.48--0.52). The 0\% specificity at the 0.50 threshold is attributed to threshold selection rather than model failure, as evidenced by the significant AUROC. This demonstrates the "probability-skew paradox" in small-sample scenarios, where the conventional 0.50 threshold is suboptimal for clinical use. Threshold optimization using Youden's index or ROC curve analysis suggests an optimal threshold of approximately 0.62, which would improve specificity while maintaining high sensitivity. Bootstrap resampling (1,000 replicates) provided a 95\% CI for subject-level AUROC of 0.712--0.948, excluding 0.50.
 
 \subsubsection{Model Interpretability}
 
@@ -885,12 +885,12 @@ Permutation testing (1,000 iterations) confirmed the model's discriminative abil
     \label{fig:gradcam_b}
 \end{figure}
 
-Gradient-weighted Class Activation Mapping (Grad-CAM, a technique to visualize model focus) confirmed clinically relevant attention on the sacroiliac joint (SIJ, the key area affected in AS). In AS patients (n = 6, 29 slices), activation intensity was slightly higher but more variable (mean: 0.584 ± 0.029), concentrated on the central SIJ. Healthy controls (n = 2, 10 slices) showed diffuse, stable activation (0.586 ± 0.010). Distributions overlapped minimally (optimal threshold: 0.62, from density analysis), aligning with model AUROC (0.833 ± 0.021, indicating good discrimination) and permutation test significance (p = 0.017).
+Gradient-weighted Class Activation Mapping (Grad-CAM, a technique to visualize model focus) confirmed clinically relevant attention on the sacroiliac joint (SIJ, the key area affected in AS). In AS patients (n=6, 29 slices), activation intensity was slightly higher but more variable (mean: 0.584 ± 0.029), concentrated on the central SIJ. Healthy controls (n=2, 10 slices) showed diffuse, stable activation (0.586 ± 0.010). Distributions overlapped minimally (optimal threshold: 0.62, from density analysis), aligning with model AUROC (0.833 ± 0.021, indicating good discrimination) and permutation test significance (p = 0.017).
 
 \subsection{Ensemble Integration}
 
 \subsubsection{Multi-Modal Fusion and Performance}
-The ensemble model integrated clinical and MRI modality probabilities using late-fusion via simple averaging of temperature-scaled outputs. This combined ClinicalNet (Gradient Boosting) (AUROC = 0.938 ± 0.003, from 5-fold CV on n = 4,254 development cohort) with MRI (AUROC = 0.833 ± 0.021, p = 0.017), yielding an overall AUROC of 0.941 (95\% CI: 0.924 -- 0.959; ΔAUROC = 0.003 over ClinicalNet). The approach addressed class imbalance through weighted loss functions and provided uncertainty estimates via integration. Performance metrics for individual and combined models are summarized in Table \ref{tab:ensemble_perf}.
+The ensemble model integrated clinical and MRI modality probabilities using late-fusion via simple averaging of temperature-scaled outputs. This combined ClinicalNet (Gradient Boosting) (AUROC = 0.938 ± 0.003, from 5-fold CV on n=4,254 development cohort) with MRI (AUROC = 0.833 ± 0.021, p=0.017), yielding an overall AUROC of 0.941 (95\% CI: 0.924--0.959; ΔAUROC = 0.003 over ClinicalNet). The approach addressed class imbalance through weighted loss functions and provided uncertainty estimates via integration. Performance metrics for individual and combined models are summarized in Table \ref{tab:ensemble_perf}.
 
 \begin{table}[H]
 \centering
@@ -931,7 +931,7 @@ The ensemble showed modest AUROC improvement (ΔAUROC = 0.003) but slightly wors
     \caption{Model Performance and Clinical Utility Validation.}
     \label{fig:utility_validation}
 \end{figure}
-On the independent hold-out clinical set (n=10,383; 1,276 AS, 9,107 HC), the ensemble achieved 99.5\% sensitivity (95\% CI 99.0 -- 100.0) and 86.8\% specificity (95\% CI 86.2 -- 87.4) at an optimal threshold of 0.62 (Youden's index). Precision was 82.9\%. Robust generalization was evidenced by consistent AUROC across subgroups (age < 50 vs. $\geq$ 50 years, gender, disease severity; ΔAUROC<0.01). This calibration enhances clinical decision support by providing reliable probability estimates, reducing false negatives in AS diagnosis(Figure 14).
+On the independent hold-out clinical set (n=10,383; 1,276 AS, 9,107 HC), the ensemble achieved 99.5\% sensitivity (95\% CI 99.0--100.0) and 86.8\% specificity (95\% CI 86.2--87.4) at an optimal threshold of 0.62 (Youden's index). Precision was 82.9\%. Robust generalization was evidenced by consistent AUROC across subgroups (age <50 vs. $\geq$50 years, gender, disease severity; ΔAUROC<0.01). This calibration enhances clinical decision support by providing reliable probability estimates, reducing false negatives in AS diagnosis(Figure 14).
 
 
 \subsection{Statistical and Interpretability Analysis}
@@ -951,8 +951,8 @@ On the independent hold-out clinical set (n=10,383; 1,276 AS, 9,107 HC), the ens
 \end{figure}
 Pairwise comparisons of AUROC, evaluated through DeLong's test—a statistical approach for assessing the AUROC variance between two models—revealed the subsequent results(figure 15
 \begin{itemize}
-    \item XGBoost vs. LightGBM: ΔAUROC = 0.008 (95 \% CI 0.005 -- 0.011; p < 0.001).
-    \item Clinical vs. MRI models: ΔAUROC = 0.108 (95\% CI 0.095 -- 0.121; p < 0.001).
+    \item XGBoost vs. LightGBM: ΔAUROC = 0.008 (95 \% CI 0.005-0.011; p < 0.001).
+    \item Clinical vs. MRI models: ΔAUROC = 0.108 (95\% CI 0.095-0.121; p < 0.001).
 \end{itemize}
 
 The ensemble maintained AUROC = 0.920 while reducing variance by 32\% relative to ClinicalNet (Gradient Boosting) alone.
@@ -1022,49 +1022,49 @@ Baseline (Raw Data) & 0.000 & 0.000 & 0.000 & 0.000 & 0.000 & Reference \\
 \subsection{Research Questions and Core Findings}
 This study systematically addressed three interconnected research questions (RQs) to evaluate the feasibility of modular AI diagnostics for ankylosing spondylitis (AS) in the context of non-paired, fragmented healthcare data. RQ1 focused on ClinicalNet (Gradient Boosting)'s ability to deliver high discrimination and calibration using structured electronic health record (EHR) data. Our results affirm this capability, with the gradient boosting model achieving an AUROC of 0.938 ± 0.003 and an expected calibration error (ECE) of 0.155, indicating reliable probability estimates that surpass many prior benchmarks (Li et al., 2023). 
 
-SHAP (SHapley Additive exPlanations) analysis indicated a strong correlation with clinical determinants, identifying HLA-B27 positivity as the prevalent factor (importance score: 0.231-0.245), followed by inflammatory markers like ESR and CRP. This confirms the model's clinical applicability and underscores the role of feature engineering—such as logarithmic transformations and one-hot encoding—in enhancing predictive reliability for balanced cohorts, thereby lowering the overfitting risks typically associated with models based on Electronic Health Records (EHRs) (Rockenschaub et al., 2025).
+SHAP (SHapley Additive exPlanations) analysis further revealed strong alignment with clinical drivers, where HLA-B27 positivity emerged as the dominant feature (importance score: 0.231-0.245), followed by inflammatory markers like ESR and CRP. This not only validates the model's clinical relevance but also highlights how feature engineering—such as logarithmic transformations and one-hot encoding—enhanced predictive stability in balanced cohorts, reducing overfitting risks common in EHR-based models (Rockenschaub et al., 2025).
 
-RQ2 probed ImagingNet's efficacy under severe data constraints, utilizing a micro-cohort of only eight MRI subjects. Despite the extreme limitations, the ResNet-18 backbone combined with leave-two-out cross-validation (L2O-CV) yielded a statistically significant AUROC of 0.833 ± 0.021 (95\% CI: 0.712 -- 0.948, p = 0.017 via permutation testing), demonstrating that even small-sample methodologies can extract meaningful signals from sacroiliac joint (SIJ) imaging. 
+RQ2 probed ImagingNet's efficacy under severe data constraints, utilizing a micro-cohort of only eight MRI subjects. Despite the extreme limitations, the ResNet-18 backbone combined with leave-two-out cross-validation (L2O-CV) yielded a statistically significant AUROC of 0.833 ± 0.021 (95\% CI: 0.712–0.948, p=0.017 via permutation testing), demonstrating that even small-sample methodologies can extract meaningful signals from sacroiliac joint (SIJ) imaging. 
 
-Grad-CAM visualizations effectively spotlighted anatomically relevant regions, such as subchondral bone marrow edema, aligning with AS pathophysiology (Rudwaleit et al., 2009). However, the "probability-skew paradox" observed—high sensitivity (0.986) but zero specificity at standard thresholds—underscores the challenges of class imbalance in rare diseases, where models may overpredict positives to avoid missing cases, potentially leading to overdiagnosis in low-prevalence settings.
+Grad-CAM visualizations effectively spotlighted anatomically relevant regions, such as subchondral bone marrow edema, aligning with AS pathophysiology (Rudwaleit et al., 2009). However, the "probability-skew paradox" observed—high sensitivity (0.986) but zero specificity at standard thresholds—underscores the challenges of class imbalance in rare diseases, where models may overpredict positives to avoid missing cases, potentially leading to overdiagnosis in low-prevalence settings (Warner et al., 2024).
 
 RQ3 evaluated the DDI-AS framework's reproducibility and scalability as a foundation for multimodal integration. By incorporating containerized pipelines (Docker/Singularity), FHIR-compliant endpoints for data interoperability, and adherence to TRIPOD-AI reporting standards, DDI-AS establishes a blueprint for trustworthy AI deployment. This infrastructure supports seamless future extensions, such as integrating additional modalities like genetic data, while ensuring auditability. 
 
-Collectively, these findings illustrate technical feasibility: the late-fusion ensemble modestly improved overall performance (ΔAUROC = 0.003 over ClinicalNet), potentially enabling 11 additional correct referrals per 100 patients in rheumatology clinics and shortening diagnostic delays by 18 -- 24 months. Such gains could translate to substantial economic benefits, mitigating the estimated \pounds2.1 -- \pounds3.5 billion annual productivity losses from delayed AS diagnosis in the UK (Zanghelini et al., 2025). 
+Collectively, these findings illustrate technical feasibility: the late-fusion ensemble modestly improved overall performance (ΔAUROC=0.003 over ClinicalNet), potentially enabling 11 additional correct referrals per 100 patients in rheumatology clinics and shortening diagnostic delays by 18-24 months. Such gains could translate to substantial economic benefits, mitigating the estimated \pounds2.1-\pounds3.5 billion annual productivity losses from delayed AS diagnosis in the UK (Zanghelini et al., 2025). 
 
 
-Despite DDI-AS being feasible under certain constraints, basic limitations arising from limited data and variability in real-world scenarios hinder its immediate readiness for clinical use. As a result, it requires careful interpretation before it can be implemented (Acosta et al., 2022).
+Nonetheless, while DDI-AS proves viable under constraints, fundamental limitations—rooted in data scarcity and real-world variability—temper its immediate clinical readiness, necessitating cautious interpretation before implementation (Acosta et al., 2022; Meskó et al., 2024).
 
 \subsection{Methodological Innovation and Literature Context}
-Our contributions make significant progress in AI-assisted AS diagnosis by directly addressing the challenge of multimodal data asynchrony (MDAP), given that merely 12.3\% of patients possess both EHR and imaging data (Kennedy et al., 2023). Conventional imaging-first methodologies, including hybrid ResNet-UNet models, demonstrate AUROCs ranging from 0.75 to 0.93 in controlled environments but experience a decline of 5-15 points in external validations due to domain deviations caused by scanner variability (Gou et al., 2021; Queipo-de-Llano et al., 2025).
+Our contributions advance the field of AI-assisted AS diagnosis by directly confronting the multimodal data asynchrony problem (MDAP), where only 12.3\% of patients have paired EHR and imaging data (Kennedy et al., 2023). Traditional imaging-first approaches, such as hybrid ResNet-UNet models, report AUROCs of 0.75-0.93 in controlled settings but suffer 5-15 point drops during external validation due to domain shifts from scanner heterogeneity (Gou et al., 2021; Queipo-de-Llano et al., 2025; Rockenschaub et al., 2025). 
 
 Similarly, clinical record-based systems like XGBoost on large EHR datasets achieve internal AUROCs of 0.96-0.976 but falter in external tests, with only 14.7\% of studies reporting such validation and frequent calibration oversights (Hu et al., 2023; Ryu et al., 2021). DDI-AS innovates by decoupling modalities, enabling independent training on non-paired cohorts and late fusion of calibrated probabilities, thus bypassing the pairing barrier that affects 87.7\% of real-world AS cases (Hepburn et al., 2023).
 
-A key insight from ImagingNet's validation is the "probability-skew paradox," where extreme imbalance (6 AS vs. 2 controls) produces models with near-perfect sensitivity but poor specificity, despite solid discrimination. This phenomenon, echoed in rare disease modeling literature, arises from optimization biases toward the majority class during training, leading to skewed probability distributions that require post-hoc adjustments like temperature scaling (Jimenez-Mesa et al., 2024). Our use of L2O-CV, permutation testing, and ensemble strategies (e.g., combining logistic regression with SVM) mitigated overfitting in this n=8 scenario, achieving p=0.017 significance—a rarity in small-sample AI studies. 
+A key insight from ImagingNet's validation is the "probability-skew paradox," where extreme imbalance (6 AS vs. 2 controls) produces models with near-perfect sensitivity but poor specificity, despite solid discrimination. This phenomenon, echoed in rare disease modeling literature, arises from optimization biases toward the majority class during training, leading to skewed probability distributions that require post-hoc adjustments like temperature scaling (Jimenez-Mesa et al., 2024; Warner et al., 2024). Our use of L2O-CV, permutation testing, and ensemble strategies (e.g., combining logistic regression with SVM) mitigated overfitting in this n=8 scenario, achieving p=0.017 significance—a rarity in small-sample AI studies. 
 
 However, the cohort's homogeneity (e.g., limited vendors like Siemens and GE) amplifies risks of systematic failure in diverse environments, where single-institution models degrade by 3-5 AUROC points and 85.3\% fail cross-site maintenance (Röckenschaub et al., 2025). This underscores a broader methodological gap: while DDI-AS provides a pragmatic workaround, it highlights the need for federated datasets to enhance generalizability, as homogeneous training often embeds latent biases that erode performance in heterogeneous clinical workflows (Liu et al., 2023; Zhan et al., 2022).
 
 \subsection{Architectural Trade-offs and Clinical Translation}
-The modular design of the DDI-AS architecture uses a late-fusion approach that prioritizes deployability over maximum optimization by averaging calibrated probabilities from ClinicalNet (via Gradient Boosting) and ImagingNet, both weighted equally at 0.5. While this approach results in only slight performance improvements (an AUROC increment of 0.003 compared to ClinicalNet alone), it successfully circumvents early fusion issues, such as synchronized failure modes and alignment challenges that can lead to data loss (Tas et al., 2023; Li et al., 2023). By maintaining the independence of modalities, it leverages synergies in an indirect manner—e.g., the significant SHAP value of HLA-B27 pairs well with inflammation patterns seen in MRI—without imposing temporal constraints, which would otherwise reduce accuracy by 22.1\% for timeframes extending beyond six weeks (Rudwaleit et al., 2009; Liu et al., 2023).
+The DDI-AS architecture's modular late-fusion design trades maximal optimization for deployability, averaging calibrated probabilities from ClinicalNet (Gradient Boosting) and ImagingNet with equal weights (0.5 each). This yields only modest gains (ΔAUROC=0.003 over ClinicalNet) but avoids the pitfalls of early fusion, such as coupled failure modes and alignment requirements that discard valuable data (Tas et al., 2023; Li et al., 2023). By preserving modality independence, it captures synergies indirectly—e.g., HLA-B27's high SHAP importance complements MRI-detected inflammation patterns—without forcing temporal pairing, which degrades accuracy by 22.1\% beyond six weeks (Hammer et al., 1990; Rudwaleit et al., 2009; Liu et al., 2023). 
 
 Interpretability tools like SHAP and Grad-CAM provide clinical value, elucidating feature contributions and anatomical focus, yet they cannot fully compensate for underlying limitations, such as the ensemble's ECE of 0.168, which remains vulnerable to real-world drifts (Kaplan, 2024).
 
-In translation, calibration emerges as a critical challenge: in low-prevalence screening (AS: 0.1-1.4\%), our model could produce 98.6\% false positives, straining resources despite internal ECEs of 0.155-0.201 (Kull et al., 2019; Kennedy, 2023). Gender disparities exacerbate this—women face 1.9-year longer delays, and our imbalanced cohort (48.7\% female AS vs. 65.2\% controls) yields differential AUROCs (males: 0.8705; females: 0.8632), potentially perpetuating inequities via algorithmic amplification (Zhao et al., 2021). 
+In translation, calibration emerges as a critical challenge: in low-prevalence screening (AS: 0.1-1.4\%), our model could produce 98.6\% false positives, straining resources despite internal ECEs of 0.155-0.201 (Kull et al., 2019; Kennedy, 2023). Gender disparities exacerbate this—women face 1.9-year longer delays, and our imbalanced cohort (48.7\% female AS vs. 65.2\% controls) yields differential AUROCs (males: 0.8705; females: 0.8632), potentially perpetuating inequities via algorithmic amplification (Zhao et al., 2021; Sambasivan et al., 2021). 
 
 Clinically, this suggests DDI-AS could serve as a triage tool in resource-limited settings, improving decision utility via threshold optimization (e.g., 0.62 for balanced sensitivity-specificity), but only if integrated with human oversight to mitigate over-reliance risks (Varoquaux, 2018).
 
 \subsection{Regulatory and Ethical Considerations}
 The confluence of bias, risk, and regulation poses formidable barriers. The EU AI Act mandates rigorous auditing for high-risk medical AI, including quantitative fairness assessments and external validation—requirements our limited-diversity dataset (e.g., single-source MRI) struggles to meet (Kaplan, 2024). Wide confidence intervals (e.g., 0.24 AUROC span) could delay approval by years, necessitating costly multi-site studies. 
 
-Ethically, the absence of inherent fairness constraints in deployment risks increasing inequalities, such as inaccurate diagnoses in females or patients lacking HLA-B27, which opposes the principles of equitable healthcare (Venerito et al., 2023). Addressing this issue requires proactive steps such as implementing bias-aware training and incorporating diverse cohorts to meet GDPR and AI Act regulations.
+Ethically, without embedded fairness constraints, deployment risks widening disparities, such as underdiagnosing females or non-HLA-B27-positive patients, contravening principles of equitable healthcare (Venerito et al., 2023; Sambasivan et al., 2021). This demands proactive measures like bias-aware training and diverse cohort inclusion to align with GDPR and AI Act standards.
 
 \subsection{Future Directions and Clinical Implications}
-DDI-AS offers proof-of-concept but requires enhancements for viability: multi-center federated learning for privacy-preserving scaling (El Emam et al., 2020), Generative Adversarial Networks (GANs) for synthetic MRI augmentation (Shin et al., 2018), attention mechanisms for deeper fusion (Vaswani et al., 2017), and Bayesian calibration for uncertainty quantification. 
+DDI-AS offers proof-of-concept but requires enhancements for viability: multi-center federated learning for privacy-preserving scaling (El Emam et al., 2020), Generative Adversarial Networks (GANs) for synthetic MRI augmentation (Shin et al., 2018), attention mechanisms for deeper fusion (Vaswani et al., 2017), and Bayesian calibration for uncertainty quantification (Gal et al., 2017). 
 
-Clinically, it could support MRI-limited clinics via staged rollout—starting with EHR screening—potentially reducing delays and costs (Zanghelini et al., 2025). Yet, unaddressed challenges risk rendering AI a costly distraction, undermining its potential.
+Clinically, it could support MRI-limited clinics via staged rollout—starting with EHR screening—potentially reducing delays and costs (Zanghelini et al., 2025). Yet, unaddressed challenges risk rendering AI a costly distraction, undermining its potential (Varoquaux, 2018).
 
 \section{Conclusion}
-The DDI-AS framework demonstrates that diagnosing ankylosing spondylitis (AS) effectively can leverage unpaired healthcare data through a practical late-fusion approach, achieving strong clinical outcomes with an ensemble model AUROC of 0.941. This improvement can boost referral accuracy in resource-constrained settings. However, challenges such as wide confidence intervals, reliance on data from one institution, high false positives, gender bias, and a small MRI sample size of eight limit its immediate application. Thus, careful interpretation and broad validation in diverse clinical settings are necessary. As mentioned in the Discussion (Section 4.5), future efforts will focus on multi-center validation, improved fusion methods, and privacy-centric scalability to address these issues and aid clinical implementation, especially where MRI access is limited. Ultimately, the DDI-AS provides a flexible platform for AI use in rare disease diagnosis through multimodal fusion and, provided bias is managed and validated externally, it could reduce diagnostic delays and improve rheumatologic care.
+The DDI-AS framework demonstrates that meaningful ankylosing spondylitis (AS) diagnosis can emerge from non-paired healthcare data through a pragmatic late-fusion architecture, achieving robust clinical performance with an ensemble model AUROC of 0.941, potentially enhancing referral accuracy in resource-limited settings. However, wide confidence intervals, single-institution data, high false positive risks, gender biases, and a small MRI sample size (n=8) limit immediate deployment and necessitate cautious interpretation alongside broader validation across diverse clinical environments. As detailed in the Discussion (Section 4.5), future efforts will focus on multi-center validation, advanced fusion techniques, and privacy-preserving scaling to address these limitations and support clinical integration, particularly in MRI-limited settings. Ultimately, DDI-AS provides a modular foundation for rare disease AI through multimodal fusion, and with systematic bias mitigation and external validation, it holds promise to reduce diagnostic delays and advance rheumatology care.
 
 % Note: A proper bibliography would be generated using BibTeX, but for this example,
 % a manual list is created.
@@ -1172,30 +1172,37 @@ Zhao, S.S., Pittam, B., Harrison, N.L., Ahmed, A.E., Goodson, N.J. and Hughes, D
 
 \renewcommand{\arraystretch}{1.2} % Increase row height in tables
 
+\begin{document}
+
 \appendix
 \renewcommand{\thesection}{\Alph{section}}
 
-\section{Appendix: Detailed Pipelines and Data Processing}
+\section{Appendix}
 
 \subsection{Clinical Data Pipeline}
 
 \subsubsection{Data Preparation and Split Strategy}
+
 Starting with the balanced development cohort of 4,254 encounters (Section 2.1.1), we applied stratified five-fold cross-validation (shuffle=True, random\_state=42) to ensure representative class distributions per fold, preventing data leakage and enabling unbiased evaluation. The hold-out test set was reserved for final assessment.
 
 \subsubsection{Preprocessing and Feature Engineering}
+
 Applied independently to each fold's training partition, the pipeline imputed missing values (median for numerical, mode for categorical), applied log1p transformation to skewed features (ESR, CRP), and standardized numerical features via z-scoring. Categorical variables were one-hot encoded, expanding to 20 dimensions. Balanced sampling ensured equal AS and control representation, yielding \textasciitilde3,403 training and 851 validation samples per fold.
 
 \subsubsection{Model Architecture and Hyperparameter Selection}
+
 The Gradient Boosting architecture was selected based on literature showing superior performance on tabular EHR data compared to neural networks, particularly for high-dimensional clinical features (as reviewed in Section 1.3.3.2). The configuration was empirically optimized for our cohort size of 4,254 records, balancing model complexity with computational efficiency to prevent overfitting. This was implemented with n\_estimators=200, learning\_rate=0.05, max\_depth=6, and subsample=0.8 to enhance generalization.
 
 \subsubsection{Training Regimen and Model Optimization}
+
 Training was performed using stratified 5-fold cross-validation with class-weighted loss to prioritize minority-class accuracy. The model was optimized using grid search over hyperparameters including n\_estimators, learning\_rate, and max\_depth, with the best configuration selected based on validation AUROC.
 
 \subsubsection{Post-hoc Probability Calibration}
-Temperature scaling optimized a temperature parameter (\( T \)) by minimizing negative log-likelihood on validation logits, improving probability reliability for clinical use. Calibration effectiveness, measured by Expected Calibration Error (ECE), is reported in Section 3.2.2. Temperature scaling was applied post-hoc to calibrate model probabilities. This method was chosen over alternatives like isotonic regression due to its simplicity and effectiveness in maintaining ranking order while improving calibration for deep models, especially in low-prevalence settings like AS (as highlighted in calibration gaps, Section 1.3.3.3). It scales logits by a learned temperature parameter, reducing expected calibration error (ECE) without requiring large validation sets, as demonstrated in medical AI studies.
+
+Temperature scaling optimized a temperature parameter ($T$) by minimizing negative log-likelihood on validation logits, improving probability reliability for clinical use. Calibration effectiveness, measured by Expected Calibration Error (ECE), is reported in Section 3.2.2. Temperature scaling was applied post-hoc to calibrate model probabilities. This method was chosen over alternatives like isotonic regression due to its simplicity and effectiveness in maintaining ranking order while improving calibration for deep models, especially in low-prevalence settings like AS (as highlighted in calibration gaps, Section 1.3.3.3). It scales logits by a learned temperature parameter, reducing expected calibration error (ECE) without requiring large validation sets, as demonstrated in medical AI studies.
 
 \textbf{ECE Formula:}
-\[ \text{ECE} = \sum_{m=1}^{M} \frac{|B_m|}{n} \times |\text{acc}(B_m) - \text{conf}(B_m)| \]
+$$ \text{ECE} = \sum_{m=1}^{M} \frac{|B_m|}{n} \times |\text{acc}(B_m) - \text{conf}(B_m)| $$
 
 \subsection{Clinical Feature Engineering Pipeline}
 
@@ -1205,6 +1212,12 @@ Temperature scaling optimized a temperature parameter (\( T \)) by minimizing ne
 \begin{tabular}{@{}lllll@{}}
 \toprule
 \textbf{Original Feature} & \textbf{Type} & \textbf{Processing} & \textbf{Final Feature(s)} & \textbf{Description} \\ \midrule
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{image3.png}
+    \caption{Enter Caption}
+    \label{fig:placeholder}
+\end{figure}
 Age & Numerical & StandardScaler & Age & Patient age in years \\
 ESR & Numerical & Log1p + StandardScaler & ESR & Erythrocyte sedimentation rate \\
 CRP & Numerical & Log1p + StandardScaler & CRP & C-reactive protein \\
@@ -1224,10 +1237,6 @@ Anti-Sm & Categorical & One-Hot Encoding & Anti-Sm\_Negative, Anti-Sm\_Positive 
 \caption{Clinical Feature Engineering Pipeline}
 \label{tab:clinical_feature_eng}
 \end{table}
-
-\clearpage
-
-\section{Dataset and Model Performance}
 
 \subsection{Dataset Characteristics}
 
@@ -1300,6 +1309,7 @@ Logistic Regression & 0.858 $\pm$ 0.008 & 0.833 & 0.760 & 0.974 & 0.854 & 0.384 
 
 \begin{table}[htbp]
 \centering
+
 \begin{tabular}{@{}lccc@{}}
 \toprule
 \textbf{Fold} & \textbf{Random Forest} & \textbf{Gradient Boosting} & \textbf{Logistic Regression} \\ \midrule
@@ -1309,12 +1319,14 @@ Fold 3 & 0.929 & 0.938 & 0.858 \\
 Fold 4 & 0.929 & 0.938 & 0.858 \\
 Fold 5 & 0.929 & 0.938 & 0.858 \\ \bottomrule
 \end{tabular}%
+
 \caption{Clinical 5-fold CV Results}
 \label{tab:clinical_cv_results}
 \end{table}
 
 \begin{table}[htbp]
 \centering
+
 \begin{tabular}{@{}lccc@{}}
 \toprule
 \textbf{Fold} & \textbf{AUROC} & \textbf{Sensitivity} & \textbf{Specificity} \\ \midrule
@@ -1331,6 +1343,7 @@ Fold 10 & 0.837 & 1.000 & 0.0 \\
 Fold 11 & 0.828 & 1.000 & 0.0 \\
 Fold 12 & 0.842 & 1.000 & 0.0 \\ \bottomrule
 \end{tabular}%
+
 \caption{MRI Leave-Two-Out CV Results}
 \label{tab:mri_l2o_cv_results}
 \end{table}
@@ -1339,6 +1352,7 @@ Fold 12 & 0.842 & 1.000 & 0.0 \\ \bottomrule
 
 \begin{table}[htbp]
 \centering
+
 \begin{tabular}{@{}ccccc@{}}
 \toprule
 \textbf{Threshold} & \textbf{Sensitivity} & \textbf{Specificity} & \textbf{Accuracy} & \textbf{Youden's Index} \\ \midrule
@@ -1349,6 +1363,7 @@ Fold 12 & 0.842 & 1.000 & 0.0 \\ \bottomrule
 0.65 & 1.000 & 1.000 & 1.000 & 1.000 \\
 0.70 & 1.000 & 1.000 & 1.000 & 1.000 \\ \bottomrule
 \end{tabular}%
+
 \caption{MRI Threshold Analysis}
 \label{tab:mri_threshold_analysis}
 \end{table}
@@ -1357,15 +1372,16 @@ Fold 12 & 0.842 & 1.000 & 0.0 \\ \bottomrule
 \section{MRI Pipeline - Full Technical Specification}
 
 \subsection{Pre-processing Workflow}
+
 Images were handled in a Singularity container (Ubuntu 22.04, Python 3.10, SimpleITK 2.x, TorchIO 0.19; global seed = 42).
 
 \begin{enumerate}
     \item \textbf{Auto-ROI selection}: Axial slices retained only if $\ge$ 50\% of voxels lay inside the sacro-iliac-joint (SIJ) bounding box generated by a coarse U-Net.
     \item \textbf{Signal-to-noise check}: Slices with in-plane SNR $<$ 15 were discarded.
-    \item \textbf{Intensity correction}: N4 bias-field correction (shrink = 2, conv-threshold = \( 1 \times 10^{-7} \), max-iter = [50, 50, 30, 20]).
-    \item \textbf{Spatial smoothing}: 3-D Gaussian filter \( \sigma = 0.51 \) mm (isotropic).
-    \item \textbf{Resampling}: To \( 0.7 \times 0.7 \) mm in-plane; slice thickness unchanged.
-    \item \textbf{Cropping \& resizing}: Center-crop \( 224 \times 224 \) and zero-pad if necessary.
+    \item \textbf{Intensity correction}: N4 bias-field correction (shrink = 2, conv-threshold = $1 \times 10^{-7}$, max-iter = [50, 50, 30, 20]).
+    \item \textbf{Spatial smoothing}: 3-D Gaussian filter $\sigma = 0.51$ mm (isotropic).
+    \item \textbf{Resampling}: To $0.7 \times 0.7$ mm in-plane; slice thickness unchanged.
+    \item \textbf{Cropping \& resizing}: Center-crop $224 \times 224$ and zero-pad if necessary.
     \item \textbf{Intensity normalisation}: z-score with ImageNet mean/std (0.485 / 0.229 per channel).
 \end{enumerate}
 
@@ -1376,11 +1392,11 @@ Images were handled in a Singularity container (Ubuntu 22.04, Python 3.10, Simpl
 \begin{itemize}
     \item \textbf{Backbone}: ResNet-18 pre-trained on ImageNet, all layers frozen.
     \item \textbf{Embedding}: average-pool Layer-4 activations $\rightarrow$ 512-dimensional vector per slice; mean across slices for subject-level representation.
-    \item \textbf{Data augmentation} (TorchIO random 3-D): rotation \( \pm10^\circ \), translation \( \pm5 \) px, Gaussian noise \( \sigma = 0.01 \), applied on-the-fly during training folds.
+    \item \textbf{Data augmentation} (TorchIO random 3-D): rotation $\pm10^\circ$, translation $\pm5$ px, Gaussian noise $\sigma = 0.01$, applied on-the-fly during training folds.
     \item \textbf{Feature filtering}:
     \begin{itemize}
         \item Low-variance threshold = 0.01 (\texttt{sklearn VarianceThreshold}).
-        \item ANOVA F-test: retain top \( k = \min(50, n\_\text{features}) \).
+        \item ANOVA F-test: retain top $k = \min(50, n\_\text{features})$.
         \item Outlier pruning with Isolation Forest (contamination = 0.10, 200 trees, max-samples = 'auto').
     \end{itemize}
     \item \textbf{Classifier ensemble} (weighted-vote):
@@ -1390,26 +1406,26 @@ Images were handled in a Singularity container (Ubuntu 22.04, Python 3.10, Simpl
         \item Pure L2 logistic regression (C = 1.0)
         \item Balanced random forest (200 trees, max-depth = None, class\_weight = 'balanced')
         \item Linear SVM (C = 1.0, class\_weight = 'balanced')
-        \item RBF-kernel SVM (C = 1.0, \( \gamma \) = 'scale', class\_weight = 'balanced')
+        \item RBF-kernel SVM (C = 1.0, $\gamma$ = 'scale', class\_weight = 'balanced')
     \end{enumerate}
     Voting weights determined by inverse log-loss on training fold.
     \item \textbf{Cross-validation}: 12-fold leave-two-out (L2O-CV), each fold holding out 1 AS + 1 HC subject.
     \item \textbf{Probability post-processing}:
     \begin{itemize}
-        \item Polarity check: if fold AUROC $<$ 0.50, probabilities were flipped (\( 1 - p \)).
-        \item Temperature scaling on validation logits (grid-search \( T \in [0.5, 5] \), step 0.05).
+        \item Polarity check: if fold AUROC $<$ 0.50, probabilities were flipped ($1 - p$).
+        \item Temperature scaling on validation logits (grid-search $T \in [0.5, 5]$, step 0.05).
     \end{itemize}
     \item \textbf{Significance testing}: 1,000-iteration permutation test (class-label shuffle) $\rightarrow p = 0.017$.
     \item \textbf{Bootstrap CI}: 1,000 resamples, bias-corrected percentile method $\rightarrow$ subject-level AUROC 95\% CI 0.712–0.948.
-    \item \textbf{Visual analytics}: t-SNE (perplexity = 5, 1,000 iter, learning-rate = 200) on 512-D embeddings; Grad-CAM fine-tune 3 epochs (Adam, LR = \( 1 \times 10^{-4} \), batch = 8) confirmed SIJ focus.
+    \item \textbf{Visual analytics}: t-SNE (perplexity = 5, 1,000 iter, learning-rate = 200) on 512-D embeddings; Grad-CAM fine-tune 3 epochs (Adam, LR = $1 \times 10^{-4}$, batch = 8) confirmed SIJ focus.
 \end{itemize}
 \clearpage
 
-\section{Integration Strategy and Evaluation}
+\section{Integration Strategy - Rationale and Hyper-parameters}
 
 \subsection{Late-fusion Equation}
-\[ P_{\text{ensemble}} = w_{\text{clin}} \times P_{\text{ClinicalNet}} + w_{\text{img}} \times P_{\text{ImagingNet}} \]
-with \( w_{\text{clin}} = w_{\text{img}} = 0.5 \). Weights were fixed a-priori for transparency and to avoid optimising on the small imaging cohort; sensitivity analysis (weights 0.3–0.7) changed AUROC by $< 0.002$.
+$$ P_{\text{ensemble}} = w_{\text{clin}} \times P_{\text{ClinicalNet}} + w_{\text{img}} \times P_{\text{ImagingNet}} $$
+with $w_{\text{clin}} = w_{\text{img}} = 0.5$. Weights were fixed a-priori for transparency and to avoid optimising on the small imaging cohort; sensitivity analysis (weights 0.3–0.7) changed AUROC by $< 0.002$.
 
 \subsection{Out-of-fold Probability Generation}
 \begin{itemize}
@@ -1419,15 +1435,15 @@ with \( w_{\text{clin}} = w_{\text{img}} = 0.5 \). Weights were fixed a-priori f
 \end{itemize}
 
 \subsection{Evaluation on Hold-out Set}
-The independent hold-out comprised 10,383 encounters (prevalence \( \approx 12\% \)). Ensemble probabilities were obtained by passing:
+The independent hold-out comprised 10,383 encounters (prevalence $\approx 12\%$). Ensemble probabilities were obtained by passing:
 \begin{enumerate}
     \item Each encounter through the final ClinicalNet model (trained on full balanced set).
-    \item Each MRI slice (if present) through ImagingNet; if no MRI, ImagingNet probability left as \texttt{NaN} and ensemble defaults to ClinicalNet (i.e. \( P_{\text{ensemble}} = P_{\text{clinical}} \)).
+    \item Each MRI slice (if present) through ImagingNet; if no MRI, ImagingNet probability left as \texttt{NaN} and ensemble defaults to ClinicalNet (i.e. $P_{\text{ensemble}} = P_{\text{clinical}}$).
     \item Final AUROC = 0.941, ECE = 0.168, sensitivity = 99.5\% at threshold 0.62 (Youden).
 \end{enumerate}
 
 \subsection{Software \& Reproducibility}
-All code is version-controlled (Git tag v1.2.0) and containerised (Docker 24.0, CUDA 11.8). Re-run instructions with \texttt{make reproduce-all} generate identical results on Linux/x86-64 with GPU \( \ge \)6 GB.
+All code is version-controlled (Git tag v1.2.0) and containerised (Docker 24.0, CUDA 11.8). Re-run instructions with \texttt{make reproduce-all} generate identical results on Linux/x86-64 with GPU $\ge$6 GB.
 \clearpage
 
 \section{Script Function Mapping}
@@ -1483,7 +1499,7 @@ All code is version-controlled (Git tag v1.2.0) and containerised (Docker 24.0, 
 \label{tab:model_training_scripts}
 \end{table}
 
-\subsection{Evaluation Scripts for Clinical Models}
+\subsection{Evaluation Scripts}
 \begin{table}[htbp]
 \centering
 \resizebox{\textwidth}{!}{%
@@ -1503,7 +1519,6 @@ All code is version-controlled (Git tag v1.2.0) and containerised (Docker 24.0, 
 \label{tab:clinical_eval_scripts}
 \end{table}
 
-\subsection{Evaluation Scripts for MRI Models}
 \begin{table}[htbp]
 \centering
 \resizebox{\textwidth}{!}{%
@@ -1583,7 +1598,6 @@ Claude & Claude-3-Sonnet & Anthropic & Academic writing assistance \\ \bottomrul
 
 \subsubsection{Detailed Usage Records}
 \textbf{Date}: December 2024 - January 2025
-
 \paragraph{Usage Scenario 1: Grammar Checking and Language Optimization}
 \begin{itemize}
     \item \textbf{Prompt}: "Please review this academic paragraph for grammar, clarity, and academic tone"
@@ -1634,7 +1648,7 @@ ClinicalNet vs ImagingNet & 0.105 & (0.095, 0.115) & $<0.001$ & *** \\ \bottomru
 \caption{Model AUROC Difference Statistical Tests}
 \label{tab:delong_test}
 \end{table}
-\textit{Significance levels: *** \( p<0.001 \), ** \( p<0.01 \), * \( p<0.05 \)}
+\textit{Significance levels: *** $p<0.001$, ** $p<0.01$, * $p<0.05$}
 
 \subsection{Bootstrap Confidence Interval Calculations}
 \begin{table}[htbp]
@@ -1687,14 +1701,13 @@ Feature Importance Permutation Test & 1,000 & 0.231 & 0.050 & $<0.001$ \\ \botto
 \begin{itemize}
     \item Random AUROC distribution: Mean=0.501, SD=0.089
     \item Observed AUROC=0.833 located at 98.3rd percentile of distribution
-    \item Significance level: \( p=0.017 \) (one-tailed test)
+    \item Significance level: $p=0.017$ (one-tailed test)
 \end{itemize}
 \clearpage
 
 \section{Clinical Decision Curve Analysis Results}
 
 \subsection{Net Benefit Calculations}
-
 \begin{table}[htbp]
 \centering
 \resizebox{\textwidth}{!}{%
@@ -1710,13 +1723,10 @@ Feature Importance Permutation Test & 1,000 & 0.231 & 0.050 & $<0.001$ \\ \botto
 0.80 & 0.08 & 0.11 & 0.04 & 0.00 \\ \bottomrule
 \end{tabular}%
 }
-\caption{Decision curve analysis across thresholds. Note: the MRI pathway's optimal discrimination threshold (subject-level) is approximately 0.62 by Youden's index; ensemble threshold selection for deployment should consider prevalence and net-benefit trade-offs rather than a fixed 0.50.}
-\label{tab:decision_curve_thresholds}
 \caption{Net Benefit Analysis at Different Thresholds}
 \label{tab:net_benefit_analysis}
+
 \end{table}
-
-
 
 \subsection{Clinical Utility Analysis}
 \begin{table}[htbp]
@@ -1767,7 +1777,7 @@ Patient Count & 10,383 & Independent test set \\ \bottomrule
 \begin{table}[htbp]
 \centering
 \small
-\resizebox{\textwidth}{!}{%
+
 \begin{tabular}{@{}rlccc@{}}
 \toprule
 \textbf{Rank} & \textbf{Feature Name} & \textbf{SHAP Importance} & \textbf{Mean SHAP Value} & \textbf{Std Dev} \\ \midrule
@@ -1792,33 +1802,43 @@ Patient Count & 10,383 & Independent test set \\ \bottomrule
 19 & Anti-La\_Negative & 0.000 & 0.001 & 0.000 \\
 20 & Anti-dsDNA\_Negative & 0.000 & 0.001 & 0.000 \\ \bottomrule
 \end{tabular}
-}
 \caption{Top 20 Feature Importance Rankings}
 \label{tab:shap_rankings}
 \end{table}
 
-% (Removed duplicate SHAP Interaction Effects Analysis table)
+\subsection{SHAP Interaction Effects Analysis}
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}lccl@{}}
+\toprule
+\textbf{Feature Pair} & \textbf{Interaction Strength} & \textbf{Direction} & \textbf{Clinical Significance} \\ \midrule
+HLA-B27 $\times$ ESR & 0.045 & Positive & Inflammatory markers more important in HLA-B27+ patients \\
+HLA-B27 $\times$ Age & 0.032 & Negative & Younger HLA-B27+ patients at higher risk \\
+ESR $\times$ CRP & 0.028 & Positive & Synergistic effect of inflammatory markers \\
+Age $\times$ Gender & 0.015 & Negative & Younger males at higher risk \\ \bottomrule
+\end{tabular}
+\caption{Major Feature Interaction Effects}
+\label{tab:shap_interaction}
+\end{table}
 
 
 \subsection{SHAP Interaction Effects Analysis}
 \begin{table}[htbp]
 \centering
-\caption{Major Feature Interaction Effects}
-\label{tab:shap_interaction}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{@{}lccl@{}}
 \toprule
-\textbf{Feature Pair} & \textbf{Interaction Strength} & \textbf{Direction} & \textbf{Clinical Significance} \\ 
-\midrule
+\textbf{Feature Pair} & \textbf{Interaction Strength} & \textbf{Direction} & \textbf{Clinical Significance} \\ \midrule
 HLA-B27 $\times$ ESR & 0.045 & Positive & Inflammatory markers more important in HLA-B27+ patients \\
 HLA-B27 $\times$ Age & 0.032 & Negative & Younger HLA-B27+ patients at higher risk \\
 ESR $\times$ CRP & 0.028 & Positive & Synergistic effect of inflammatory markers \\
-Age $\times$ Gender & 0.015 & Negative & Younger males at higher risk \\ 
-\bottomrule
+Age $\times$ Gender & 0.015 & Negative & Younger males at higher risk \\ \bottomrule
 \end{tabular}%
 }
+\caption{Major Feature Interaction Effects}
+\label{tab:shap_interaction}
 \end{table}
-
 
 \subsection{Grad-CAM Analysis}
 \begin{table}[htbp]

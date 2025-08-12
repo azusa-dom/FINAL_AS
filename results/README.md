@@ -60,6 +60,6 @@ This directory contains all the results from the DDI-AS (Dual Diagnostic Intelli
 - **Ensemble**: Cross-validation stability assessment
 
 ## Clinical Impact
-- **Optimal Threshold**: 0.40 for maximum net benefit
-- **Net Benefit**: 0.11 (11 additional true positives per 100 patients)
-- **Potential Impact**: 18-24 month earlier diagnosis 
+- **Optimal Threshold**: 0.62 (calibrated by Youden's index / ROC proximity)
+- **Net Benefit**: Consistent improvement over Treat-All baseline across 0.4–0.7
+- **Potential Impact**: Up to 18–24 months earlier diagnosis based on referral triage improvements

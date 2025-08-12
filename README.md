@@ -95,8 +95,8 @@ DDI-AS/
 ### 1. Environment Setup
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/DDI-AS-Framework
-cd DDI-AS-Framework
+git clone https://github.com/azusa-dom/FINAL_AS
+cd FINAL_AS
 
 # Install dependencies
 pip install -r requirements.txt
@@ -104,26 +104,29 @@ pip install -r requirements.txt
 
 ### 2. Data Preparation
 ```bash
-# Run data preprocessing
-python run_ddi_as.py --mode data_preparation
+# (Optional) Prepare directory scaffolding (data/, results/)
+python config.py
 ```
 
 ### 3. Model Training
 ```bash
-# Train ClinicalNet
-python run_ddi_as.py --mode train_clinical
+# Train ClinicalNet only
+python run_ddi_as.py --mode clinical --clinical_data data/clinical --output_dir results
 
-# Train ImagingNet
-python run_ddi_as.py --mode train_mri
+# Train ImagingNet only
+python run_ddi_as.py --mode imaging --as_data data/mri/as --healthy_data data/mri/healthy --output_dir results
 
-# Train ensemble
-python run_ddi_as.py --mode train_ensemble
+# Train ensemble (requires predictions produced by the above steps)
+python run_ddi_as.py --mode ensemble --output_dir results
 ```
 
-### 4. Generate Results
+### 4. Build the paper (release)
 ```bash
-# Generate all figures and reports
-python run_ddi_as.py --mode generate_results
+# Quick local build (requires TeXLive)
+make build-paper
+
+# Or build the synchronized release file
+cd docs/paper && latexmk -pdf -interaction=nonstopmode -halt-on-error final_release.tex
 ```
 
 ## 🔬 Technical Details

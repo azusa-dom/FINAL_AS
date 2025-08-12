@@ -1,0 +1,35 @@
+name: CI (Python)
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Smoke test imports
+        run: |
+          python - <<'PY'
+          import importlib
+          import config
+          import run_ddi_as
+          print('imports-ok')
+          PY
+
+      - name: Config validation
+        run: |
+          python config.py
