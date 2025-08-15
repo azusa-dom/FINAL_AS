@@ -193,32 +193,11 @@ cd docs/paper && latexmk -pdf -interaction=nonstopmode -halt-on-error final_rele
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🤝 Citation
-
-If you use this work in your research, please cite:
-
-```bibtex
-@article{ddi_as_2025,
-  title={Dual Diagnostic Intelligence: An AI Framework for Ankylosing Spondylitis Diagnosis Under Real-World Data Constraints - Independent Validation on Clinical and Imaging Cohorts},
-  author={[Your Name]},
-  journal={[Journal Name]},
-  year={2025},
-  doi={[DOI]},
-  url={https://github.com/azusa-dom/FINAL_AS}
-}
-```
-
 ## 📞 Contact
 
 For questions, support, or collaboration opportunities, please contact:
-- **Email**: [your.email@institution.edu]
-- **Institution**: [Your Institution]
-- **Research Group**: [Your Research Group]
+- **Email**: [zczqzh9@ucl.ac.uk]
 
-## 🙏 Acknowledgments
-
-We thank the medical professionals and patients who contributed to this research, as well as the open-source community for providing the foundational tools that made this work possible.
 
 ---
 
-**Note**: This project represents a significant advancement in addressing the Multimodal Data Asynchrony Problem (MDAP) in clinical AI, providing a robust framework for real-world deployment where perfectly paired datasets are rare. The framework's ability to work with fragmented healthcare data makes it particularly valuable for resource-constrained clinical environments.
