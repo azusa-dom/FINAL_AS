@@ -195,9 +195,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Contact
 
-For questions, support, or collaboration opportunities, please contact:
-- **Email**: [zczqzh9@ucl.ac.uk]
+For questions, support, or collaboration opportunities:
+- **Name**: Zoya Huo
+- **Email**: zczqzh9@ucl.ac.uk
 
-
----
 
