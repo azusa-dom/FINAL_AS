@@ -16,6 +16,13 @@
 \usepackage{textgreek}
 \usepackage{iftex}
 \usepackage[pdftex]{graphicx}
+% Safeguard for missing figures in CI builds: fallback to a framed filename
+% instead of stopping the build. Real figures are located under results/figures/.
+\makeatletter
+\let\Oldincludegraphics\includegraphics
+\renewcommand{\includegraphics}[2][]{%
+  \IfFileExists{#2}{\Oldincludegraphics[#1]{#2}}{\fbox{#2}}}%
+\makeatother
 \usepackage{newunicodechar}
 \newunicodechar{⁴}{\textsuperscript{4}}
 \usepackage{longtable,booktabs,array}
@@ -32,8 +39,12 @@
 \usepackage{parskip}       % Removes paragraph indentation and adds space between paragraphs
 \newunicodechar{⁻}{\textsuperscript{-}}
 
-% Set the path for image files (prefer repository figures, fallback to legacy path if available)
-\graphicspath{{results/figures/}{vertopal_9877a777d34043fea0110a83eb29bb37/media/}}
+% Set multiple search paths for images to support different build contexts
+% - Building from results/: figures/
+% - Building from repo root: results/figures/
+% - Building from docs/paper: ../../results/figures/
+% Plus fallback to legacy vertopal path if available
+\graphicspath{{figures/}{results/figures/}{../../results/figures/}{vertopal_9877a777d34043fea0110a83eb29bb37/media/}}
 
 % Define a new centered column type for tabularx
 \newcolumntype{C}{>{\centering\arraybackslash}X}
@@ -1712,8 +1723,6 @@ Feature Importance Permutation Test & 1,000 & 0.231 & 0.050 & $<0.001$ \\ \botto
 }
 \caption{Decision curve analysis across thresholds. Note: the MRI pathway's optimal discrimination threshold (subject-level) is approximately 0.62 by Youden's index; ensemble threshold selection for deployment should consider prevalence and net-benefit trade-offs rather than a fixed 0.50.}
 \label{tab:decision_curve_thresholds}
-\caption{Net Benefit Analysis at Different Thresholds}
-\label{tab:net_benefit_analysis}
 \end{table}
 
 

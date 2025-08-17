@@ -17,9 +17,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-science latexmk
 
       - name: Build final.tex
-        working-directory: results
         run: |
-          latexmk -pdf -interaction=nonstopmode -halt-on-error final.tex
+          latexmk -pdf -interaction=nonstopmode -halt-on-error results/final.tex
 
       - name: Upload PDF artifact
         uses: actions/upload-artifact@v4
