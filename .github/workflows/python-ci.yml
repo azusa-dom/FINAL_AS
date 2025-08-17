@@ -26,7 +26,8 @@ jobs:
           python - <<'PY'
           import importlib
           import config
-          import run_ddi_as
+          import src.reporting.build_report_assets as build_assets
+          import src.reporting.plot_figures as plot_figs
           print('imports-ok')
           PY
 
