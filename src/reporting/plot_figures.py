@@ -31,18 +31,24 @@ def read_json(path: Path) -> dict:
 
 def plot_model_metrics(processed_dir: Path, out_dir: Path) -> None:
     perf = read_json(processed_dir / "ensemble_performance_data.json")
+    # Clinical metrics (from clinical_performance_data.json)
+    clin_json = read_json(processed_dir / "clinical_performance_data.json")
+    clin = clin_json.get("Gradient Boosting", {})
+    clinical_ece = clin.get("ECE", None)
+
     records = [
         {
             "model": "ClinicalNet (GB)",
             "AUROC": perf.get("clinical_auroc", None),
             "AUROC_std": perf.get("clinical_auroc_std", None),
-            "ECE": 0.155,
+            "ECE": clinical_ece,
         },
         {
             "model": "ImagingNet",
             "AUROC": perf.get("mri_auroc", None),
             "AUROC_std": perf.get("mri_auroc_std", None),
-            "ECE": 0.187,
+            # No authoritative MRI ECE in processed files; keep None to avoid fabrication
+            "ECE": None,
         },
         {
             "model": "Ensemble",
@@ -76,9 +82,11 @@ def plot_model_metrics(processed_dir: Path, out_dir: Path) -> None:
 
     # ECE bar (if available)
     plt.figure(figsize=(6, 4))
-    ax = sns.barplot(data=df, x="model", y="ECE", color="#55A868")
-    if df["ECE"].notna().any():
-        ax.set_ylim(0.0, max(0.25, float(df["ECE"].max())))
+    # Only plot rows with valid ECE to avoid fabricated values
+    df_ece = df.dropna(subset=["ECE"])  # ImagingNet likely removed here if ECE is None
+    ax = sns.barplot(data=df_ece, x="model", y="ECE", color="#55A868")
+    if not df_ece.empty:
+        ax.set_ylim(0.0, max(0.25, float(df_ece["ECE"].max())))
     ax.set_xlabel("")
     ax.set_ylabel("ECE (lower is better)")
     plt.tight_layout()

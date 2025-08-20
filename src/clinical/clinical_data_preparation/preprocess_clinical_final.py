@@ -58,6 +58,9 @@ def run_final_preprocessing(input_csv, output_dir, n_splits=5, id_column="Patien
 
     # --- The most important step: Define X and y from the clean, balanced data ---
     y = df_balanced[label_column]
+    # Ensure patient ID column exists; if missing, create a stable index-based ID
+    if id_column not in df_balanced.columns:
+        df_balanced[id_column] = np.arange(len(df_balanced))
     patient_ids = df_balanced[id_column]
 
     # Explicitly drop the label, the original disease column, and the ID column to create features X

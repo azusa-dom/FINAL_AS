@@ -122,9 +122,23 @@ def create_xgboost_model():
         eval_metric='logloss'
     )
 
+class SimpleNN(nn.Module):
+    """Minimal MLP for tabular binary classification producing a single logit."""
+    def __init__(self, input_dim: int, hidden_size: int = 64, dropout_rate: float = 0.5):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_size, 1),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
 def create_neural_network_model(input_dim):
-    """Create neural network model"""
-    return ClinicalNet(input_dim=input_dim, hidden_size=64, dropout_rate=0.5)
+    """Create a simple neural network model for tabular data."""
+    return SimpleNN(input_dim=input_dim, hidden_size=64, dropout_rate=0.5)
 
 def train_neural_network(X_train, y_train, X_val, y_val, input_dim, epochs=100):
     """Train neural network with early stopping"""
