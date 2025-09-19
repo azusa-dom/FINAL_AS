@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""
-构建 Engine 1 所需的平衡临床数据集。
-
-从包含多种风湿病的原始数据集中提取 Ankylosing Spondylitis（AS）患者为正样本，其余为负样本。
-通过下采样或上采样控制类别平衡，输出供模型训练使用的统一数据集。
-
-示例用法：
-python scripts/build_balanced_dataset.py \
-  --input data/rheumatic_autoimmune_disease.csv \
-  --method undersample \
-  --output data/balanced_clinical.csv
-"""
 
 import pandas as pd
 import argparse
